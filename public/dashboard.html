@@ -366,13 +366,19 @@
             <span class="icon">📸</span>Shot
           </button>
         </div>
-        <select class="res-select" id="c-res-${camId}" onchange="sendCmd('${camId}','change-resolution',this.value)" disabled>
-          <option value="4k">4K (3840×2160)</option>
-          <option value="1080p">Full HD (1920×1080)</option>
-          <option value="720p" selected>HD (1280×720)</option>
-          <option value="480p">SD (854×480)</option>
-          <option value="360p">Low (640×360)</option>
-        </select>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <select class="res-select" id="c-res-${camId}" onchange="sendCmd('${camId}','change-resolution',this.value)" disabled style="flex:1">
+            <option value="4k">4K (3840×2160)</option>
+            <option value="1080p">Full HD (1920×1080)</option>
+            <option value="720p" selected>HD (1280×720)</option>
+            <option value="480p">SD (854×480)</option>
+            <option value="360p">Low (640×360)</option>
+          </select>
+          <select class="res-select" id="c-ori-${camId}" onchange="sendCmd('${camId}','change-orientation',this.value)" disabled style="flex:1">
+            <option value="landscape" selected>Landscape (16:9)</option>
+            <option value="portrait">Portrait (9:16)</option>
+          </select>
+        </div>
       </div>
     `;
 
@@ -450,7 +456,7 @@
     }
 
     // Aktifkan/matikan tombol kontrol
-    const ctrlIds = [`c-flip-${camId}`, `c-mic-${camId}`, `c-flash-${camId}`, `c-shot-${camId}`, `c-res-${camId}`];
+    const ctrlIds = [`c-flip-${camId}`, `c-mic-${camId}`, `c-flash-${camId}`, `c-shot-${camId}`, `c-res-${camId}`, `c-ori-${camId}`];
     ctrlIds.forEach(id => {
       const btn = document.getElementById(id);
       if (btn) btn.disabled = !sender;

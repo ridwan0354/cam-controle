@@ -102,6 +102,7 @@
     let isMuted = false;
     let isFlashOn = false;
     let currentResolution = '720p';
+    let currentOrientation = 'landscape';
 
     const resolutions = {
       '4k':   { width: 3840, height: 2160 },
@@ -146,8 +147,14 @@
         if (localStream) localStream.getTracks().forEach(t => t.stop());
 
         const res = resolutions[currentResolution] || resolutions['720p'];
+        const isPortrait = currentOrientation === 'portrait';
         localStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode, width: { ideal: res.width }, height: { ideal: res.height }, frameRate: { ideal: 30 } },
+          video: { 
+            facingMode, 
+            width: { ideal: isPortrait ? res.height : res.width }, 
+            height: { ideal: isPortrait ? res.width : res.height }, 
+            frameRate: { ideal: 30 } 
+          },
           audio: { echoCancellation: true, noiseSuppression: true },
         });
 
@@ -294,6 +301,11 @@
 
         case 'change-resolution':
           currentResolution = value;
+          await restartCamera();
+          break;
+
+        case 'change-orientation':
+          currentOrientation = value;
           await restartCamera();
           break;
       }
