@@ -101,7 +101,7 @@
     let facingMode = 'environment';
     let isMuted = false;
     let isFlashOn = false;
-    let currentResolution = '1080p';
+    let currentResolution = '720p';
 
     const resolutions = {
       '4k':   { width: 3840, height: 2160 },
@@ -145,7 +145,7 @@
       try {
         if (localStream) localStream.getTracks().forEach(t => t.stop());
 
-        const res = resolutions[currentResolution] || resolutions['1080p'];
+        const res = resolutions[currentResolution] || resolutions['720p'];
         localStream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode, width: { ideal: res.width }, height: { ideal: res.height }, frameRate: { ideal: 30 } },
           audio: { echoCancellation: true, noiseSuppression: true },
@@ -229,7 +229,33 @@
     socket.on('webrtc-answer', async ({ camId, answer }) => {
       if (camId !== CAM_ID || !pc) return;
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      applyBitrateLimit();
     });
+
+    function applyBitrateLimit() {
+      if (!pc) return;
+      const senders = pc.getSenders();
+      const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+      if (videoSender) {
+        try {
+          const parameters = videoSender.getParameters();
+          if (!parameters.encodings) parameters.encodings = [{}];
+          
+          let maxBitrate = 1200000; // default 720p: 1.2 Mbps
+          if (currentResolution === '1080p') maxBitrate = 2200000; // 2.2 Mbps
+          else if (currentResolution === '480p') maxBitrate = 600000; // 600 kbps
+          else if (currentResolution === '360p') maxBitrate = 300000; // 300 kbps
+          else if (currentResolution === '4k') maxBitrate = 6000000; // 6 Mbps
+          
+          parameters.encodings[0].maxBitrate = maxBitrate;
+          videoSender.setParameters(parameters)
+            .then(() => console.log(`[WebRTC] Bitrate limit applied: ${maxBitrate / 1000} kbps`))
+            .catch(err => console.warn('Gagal set bitrate limit:', err));
+        } catch (e) {
+          console.warn('Error applyBitrateLimit:', e);
+        }
+      }
+    }
 
     socket.on('webrtc-ice-candidate', async ({ camId, candidate }) => {
       if (camId !== CAM_ID || !pc) return;
