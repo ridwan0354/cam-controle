@@ -569,16 +569,20 @@
       document.getElementById('btn-add-cam').disabled = false;
       document.getElementById('cam-name-input').focus();
 
-      let cameraIds = [];
+      let cameraPayloads = [];
       if (savedCamerasRaw) {
         try {
           const savedCams = JSON.parse(savedCamerasRaw);
-          cameraIds = Object.keys(savedCams);
+          cameraPayloads = Object.entries(savedCams).map(([id, cam]) => ({
+            id,
+            name: cam.name,
+            orientation: cam.orientation || 'landscape'
+          }));
         } catch {}
       }
 
       // Gabung room dan daftarkan kembali semua kamera yang tersimpan ke server
-      socket.emit('join-room', { roomId: currentRoomId, role: 'dashboard', cameras: cameraIds });
+      socket.emit('join-room', { roomId: currentRoomId, role: 'dashboard', cameras: cameraPayloads });
       log(`Room dimuat kembali: ${currentRoomId}`, 'success');
 
       if (savedCamerasRaw) {

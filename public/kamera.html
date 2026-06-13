@@ -109,7 +109,17 @@
     let isMuted = false;
     let isFlashOn = false;
     let currentResolution = '720p';
-    let currentOrientation = 'landscape';
+    
+    function getScreenOrientation() {
+      if (window.screen && window.screen.orientation && window.screen.orientation.type) {
+        const type = window.screen.orientation.type;
+        if (type.includes('portrait')) return 'portrait';
+        if (type.includes('landscape')) return 'landscape';
+      }
+      return window.innerWidth < window.innerHeight ? 'portrait' : 'landscape';
+    }
+
+    let currentOrientation = getScreenOrientation();
     let selectedDeviceId = null;
 
     const resolutions = {
@@ -186,7 +196,7 @@
         await updateDeviceList();
 
         // Join room
-        socket.emit('join-room', { roomId: ROOM_ID, role: 'sender', camId: CAM_ID, camName: CAM_NAME });
+        socket.emit('join-room', { roomId: ROOM_ID, role: 'sender', camId: CAM_ID, camName: CAM_NAME, orientation: currentOrientation });
 
       } catch (err) {
         console.error(err);
@@ -398,8 +408,27 @@
     });
 
     async function restartCamera() {
-      if (localStream) localStream.getTracks().forEach(t => t.stop());
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+      }
       await initCamera();
+
+      if (pc) {
+        const videoTrack = localStream?.getVideoTracks()[0];
+        const audioTrack = localStream?.getAudioTracks()[0];
+
+        const senders = pc.getSenders();
+        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+        const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+
+        if (videoSender && videoTrack) {
+          videoSender.replaceTrack(videoTrack).catch(err => console.warn('replace video track error:', err));
+        }
+        if (audioSender && audioTrack) {
+          audioSender.replaceTrack(audioTrack).catch(err => console.warn('replace audio track error:', err));
+        }
+        applyBitrateLimit();
+      }
     }
 
     async function applyFlash(on) {
@@ -436,6 +465,24 @@
       if (wakeLock && document.visibilityState === 'visible') await requestWakeLock();
     });
     requestWakeLock();
+
+    // Listen physical orientation changes
+    function handleOrientationChange() {
+      const newOri = getScreenOrientation();
+      if (newOri !== currentOrientation) {
+        currentOrientation = newOri;
+        console.log('[Kamera] Orientasi fisik berubah:', currentOrientation);
+        socket.emit('update-orientation', { roomId: ROOM_ID, camId: CAM_ID, orientation: currentOrientation });
+        restartCamera();
+      }
+    }
+
+    if (window.screen && window.screen.orientation) {
+      window.screen.orientation.addEventListener('change', handleOrientationChange);
+    } else {
+      window.addEventListener('orientationchange', handleOrientationChange);
+      window.addEventListener('resize', handleOrientationChange);
+    }
   </script>
 </body>
 </html>

@@ -76,7 +76,7 @@ io.on('connection', (socket) => {
   // role: 'dashboard' | 'sender' | 'receiver'
   // camId: diperlukan untuk sender & receiver
   // camName: nama kamera (hanya dari sender)
-  socket.on('join-room', ({ roomId, role, camId, camName, cameras }) => {
+  socket.on('join-room', ({ roomId, role, camId, camName, cameras, orientation }) => {
     socket.join(roomId);
     socket.data = { roomId, role, camId };
 
@@ -98,9 +98,20 @@ io.on('connection', (socket) => {
 
       // Daftarkan ulang kamera yang dibawa oleh dashboard (misal hasil load localStorage)
       if (cameras && Array.isArray(cameras)) {
-        cameras.forEach(id => {
-          if (!room.cameras[id]) {
-            room.cameras[id] = { name: id, sender: null, receiver: null, orientation: 'landscape' };
+        cameras.forEach(item => {
+          if (typeof item === 'object' && item !== null && item.id) {
+            const id = item.id;
+            if (!room.cameras[id]) {
+              room.cameras[id] = { name: item.name || id, sender: null, receiver: null, orientation: item.orientation || 'landscape' };
+            } else {
+              if (item.name) room.cameras[id].name = item.name;
+              if (item.orientation) room.cameras[id].orientation = item.orientation;
+            }
+          } else if (typeof item === 'string') {
+            const id = item;
+            if (!room.cameras[id]) {
+              room.cameras[id] = { name: id, sender: null, receiver: null, orientation: 'landscape' };
+            }
           }
         });
       }
@@ -115,7 +126,8 @@ io.on('connection', (socket) => {
 
       room.cameras[camId].sender = socket.id;
       if (camName) room.cameras[camId].name = camName;
-      console.log(`[${roomId}][${camId}] Sender "${camName}" bergabung`);
+      if (orientation) room.cameras[camId].orientation = orientation;
+      console.log(`[${roomId}][${camId}] Sender "${camName}" bergabung dengan orientasi: ${orientation || 'landscape'}`);
 
       // Jika Receiver sudah menunggu, perintahkan Sender buat Offer
       if (room.cameras[camId].receiver) {
@@ -222,6 +234,18 @@ io.on('connection', (socket) => {
     const sender = rooms[roomId]?.cameras[camId]?.sender;
     if (sender) io.to(sender).emit('remote-command', { command, value });
     console.log(`[${roomId}][${camId}] Remote: ${command}${value ? ' → ' + value : ''}`);
+  });
+
+  // ============================================================
+  // Update Orientasi dari HP (Auto-orientasi)
+  // ============================================================
+  socket.on('update-orientation', ({ roomId, camId, orientation }) => {
+    const room = rooms[roomId];
+    if (room && room.cameras[camId]) {
+      room.cameras[camId].orientation = orientation;
+      broadcastStatus(roomId);
+      console.log(`[${roomId}][${camId}] Update orientasi otomatis dari HP: ${orientation}`);
+    }
   });
 
   // ============================================================
