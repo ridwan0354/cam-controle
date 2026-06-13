@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OBS Receiver – WebRTC Stream</title>
+  <!--
+    ============================================================
+    HALAMAN INI KHUSUS UNTUK OBS BROWSER SOURCE
+    ============================================================
+    - Tidak ada elemen UI apapun yang tampil saat streaming berjalan.
+    - Background transparan/hitam agar bisa di-layer di OBS.
+    - Video mengisi penuh area Browser Source.
+    - Halaman ini adalah Receiver yang akan menerima stream WebRTC
+      dari HP (Sender) dan memutarnya di sini.
+    ============================================================
+  -->
+
+  <!-- Socket.io Client -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <style>
+    /* ============================
+       RESET TOTAL
+    ============================ */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      /* Transparan agar OBS bisa menggunakannya sebagai overlay */
+      background: transparent;
+    }
+
+    /* ============================
+       VIDEO ELEMENT — FULL AREA
+    ============================ */
+    #remote-video {
+      display: block;
+      width: 100%;
+      height: 100vh;
+      object-fit: cover;   /* Isi penuh tanpa letterbox */
+      background: #000000;  /* Fallback hitam saat belum ada stream */
+    }
+
+    /* ============================
+       STATUS OVERLAY (Hanya tampil
+       saat belum ada stream masuk)
+    ============================ */
+    #waiting-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: #000000;
+      color: rgba(255,255,255,0.5);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      transition: opacity 0.5s ease;
+      z-index: 10;
+    }
+
+    #waiting-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .waiting-icon {
+      font-size: 2.5rem;
+      animation: spin 3s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .waiting-text {
+      font-size: 0.9rem;
+      letter-spacing: 0.05em;
+    }
+
+    .waiting-room {
+      font-size: 0.7rem;
+      opacity: 0.4;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <!--
+    VIDEO ELEMENT: Ini adalah elemen utama yang memutar stream dari HP.
+    - autoplay: langsung putar begitu stream tersedia
+    - playsinline: penting untuk browser mobile / OBS browser source
+    - Tidak ada 'controls' agar tidak ada tombol player yang tampil
+  -->
+  <video id="remote-video" autoplay playsinline></video>
+
+  <!-- Overlay ini tampil saat menunggu stream -->
+  <div id="waiting-overlay">
+    <div class="waiting-icon">📡</div>
+    <div class="waiting-text">Menunggu stream dari HP...</div>
+    <div class="waiting-room" id="overlay-room-id">Room: —</div>
+  </div>
+
+<script>
+  // ============================================================
+  // KONFIGURASI WEBRTC
+  // ============================================================
+  const ICE_CONFIG = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      // Tambahkan TURN server di sini jika dibutuhkan
+      // { urls: 'turn:your.turn.server', username: 'user', credential: 'pass' }
+    ],
+  };
+
+  // ============================================================
+  // STATE
+  // ============================================================
+  const socket = io();
+  let peerConnection = null;
+
+  // Baca Room ID dari URL query parameter (?room=XXXXXX)
+  const urlParams = new URLSearchParams(window.location.search);
+  const roomId = urlParams.get('room');
+
+  if (!roomId) {
+    document.querySelector('.waiting-text').textContent = 'ERROR: Tidak ada Room ID di URL!';
+  } else {
+    document.getElementById('overlay-room-id').textContent = `Room: ${roomId}`;
+  }
+
+  // ============================================================
+  // SOCKET.IO: Bergabung ke Room sebagai 'receiver'
+  // ============================================================
+  socket.on('connect', () => {
+    console.log(`[OBS Receiver] Terhubung ke server. Socket ID: ${socket.id}`);
+    if (roomId) {
+      socket.emit('join-room', { roomId, role: 'receiver' });
+      console.log(`[OBS Receiver] Bergabung ke room: ${roomId}`);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.warn('[OBS Receiver] Koneksi ke signaling server terputus.');
+    // Tampilkan kembali overlay jika server terputus
+    document.getElementById('waiting-overlay').classList.remove('hidden');
+    document.querySelector('.waiting-text').textContent = 'Signaling server terputus...';
+  });
+
+  // Sender disconnect - tampilkan overlay
+  socket.on('sender-disconnected', () => {
+    console.warn('[OBS Receiver] HP Sender terputus.');
+    document.getElementById('waiting-overlay').classList.remove('hidden');
+    document.querySelector('.waiting-text').textContent = 'HP terputus. Menunggu reconect...';
+    const video = document.getElementById('remote-video');
+    video.srcObject = null;
+    if (peerConnection) {
+      peerConnection.close();
+      peerConnection = null;
+    }
+  });
+
+  // ============================================================
+  // WEBRTC: MENERIMA OFFER DAN MEMBUAT ANSWER
+  // ============================================================
+  socket.on('webrtc-offer', async ({ offer }) => {
+    console.log('[OBS Receiver] SDP Offer diterima dari Sender. Membuat Answer...');
+
+    // Tutup koneksi lama jika ada
+    if (peerConnection) peerConnection.close();
+
+    peerConnection = new RTCPeerConnection(ICE_CONFIG);
+
+    // ============================================================
+    // ontrack: Dipanggil ketika stream media dari Sender tiba!
+    // Ini adalah momen stream video/audio mulai diterima.
+    // ============================================================
+    peerConnection.ontrack = (event) => {
+      console.log('[OBS Receiver] Track media diterima!', event.track.kind);
+      const video = document.getElementById('remote-video');
+      if (event.streams && event.streams[0]) {
+        video.srcObject = event.streams[0];
+      }
+      // Sembunyikan overlay saat stream video mulai
+      if (event.track.kind === 'video') {
+        document.getElementById('waiting-overlay').classList.add('hidden');
+        console.log('[OBS Receiver] ✅ Stream aktif! Overlay disembunyikan.');
+      }
+    };
+
+    // Kirim ICE candidates ke Sender melalui signaling server
+    peerConnection.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        socket.emit('webrtc-ice-candidate', {
+          roomId,
+          candidate,
+          targetRole: 'sender', // tujuan adalah sender (HP)
+        });
+      }
+    };
+
+    // Log connection state changes
+    peerConnection.onconnectionstatechange = () => {
+      const state = peerConnection.connectionState;
+      console.log(`[OBS Receiver] P2P State: ${state}`);
+
+      if (state === 'failed' || state === 'disconnected') {
+        console.warn('[OBS Receiver] Koneksi P2P bermasalah, menampilkan overlay...');
+        document.getElementById('waiting-overlay').classList.remove('hidden');
+        document.querySelector('.waiting-text').textContent = `Koneksi ${state}. Menunggu...`;
+      }
+    };
+
+    // Set remote description dari Offer yang diterima
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+
+    // Buat Answer (jawaban atas Offer dari HP)
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+
+    // Kirim Answer kembali ke Sender (HP) via signaling server
+    socket.emit('webrtc-answer', { roomId, answer });
+    console.log('[OBS Receiver] SDP Answer dikirim ke Sender.');
+  });
+
+  // ============================================================
+  // WEBRTC: MENERIMA ICE CANDIDATES DARI SENDER
+  // ============================================================
+  socket.on('webrtc-ice-candidate', async ({ candidate }) => {
+    if (!peerConnection || !candidate) return;
+    try {
+      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      console.log('[OBS Receiver] ICE candidate dari Sender ditambahkan.');
+    } catch (err) {
+      console.error('[OBS Receiver] Gagal tambah ICE candidate:', err);
+    }
+  });
+</script>
+</body>
+</html>

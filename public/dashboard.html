@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cam Controller – Dashboard</title>
+  <meta name="description" content="Panel kontrol utama untuk sistem Mobile Camera to OBS menggunakan WebRTC." />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+
+  <!-- QR Code Generator (CDN) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <!-- Socket.io Client -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <style>
+    /* ============================
+       DESIGN TOKENS & RESET
+    ============================ */
+    :root {
+      --bg-primary: #0a0a12;
+      --bg-secondary: #12121e;
+      --bg-card: #1a1a2e;
+      --bg-card-hover: #1e1e38;
+      --border: rgba(99, 102, 241, 0.2);
+      --border-bright: rgba(99, 102, 241, 0.5);
+      --accent-purple: #6366f1;
+      --accent-violet: #7c3aed;
+      --accent-cyan: #06b6d4;
+      --accent-green: #10b981;
+      --accent-red: #ef4444;
+      --accent-orange: #f59e0b;
+      --text-primary: #f0f0ff;
+      --text-secondary: #a0a0c0;
+      --text-muted: #60607a;
+      --glow-purple: 0 0 20px rgba(99, 102, 241, 0.3);
+      --glow-cyan: 0 0 20px rgba(6, 182, 212, 0.3);
+      --radius: 12px;
+      --radius-lg: 18px;
+      --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(99,102,241,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,102,241,0.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ============================
+       LAYOUT
+    ============================ */
+    .app-wrapper {
+      position: relative;
+      z-index: 1;
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 24px 20px 60px;
+    }
+
+    /* ============================
+       HEADER
+    ============================ */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: var(--glow-purple);
+    }
+
+    .logo-text h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #e0e0ff, var(--accent-cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .logo-text p {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    /* Status Badge */
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      transition: var(--transition);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: var(--transition);
+    }
+
+    .status-dot.active { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); animation: pulse-dot 2s infinite; }
+    .status-dot.partial { background: var(--accent-orange); box-shadow: 0 0 8px var(--accent-orange); }
+    .status-dot.error { background: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+    }
+
+    /* ============================
+       ROOM ID SECTION
+    ============================ */
+    .room-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .room-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+    }
+
+    .room-id-display {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.6rem;
+      font-weight: 600;
+      color: var(--accent-purple);
+      letter-spacing: 0.15em;
+      text-shadow: var(--glow-purple);
+    }
+
+    .room-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 18px;
+      border-radius: 10px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: var(--transition);
+      font-family: 'Inter', sans-serif;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-purple), var(--accent-violet));
+      color: #fff;
+      box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45); }
+
+    .btn-secondary {
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--border-bright); color: var(--text-primary); transform: translateY(-1px); }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--accent-red);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    .btn-danger:hover { background: rgba(239, 68, 68, 0.25); transform: translateY(-1px); }
+
+    .btn-success {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-green);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .btn-success:hover { background: rgba(16, 185, 129, 0.25); transform: translateY(-1px); }
+
+    /* ============================
+       MAIN GRID
+    ============================ */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ============================
+       CARD
+    ============================ */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      transition: var(--transition);
+    }
+
+    .card:hover { border-color: var(--border-bright); }
+
+    .card-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ============================
+       QR CODE & LINKS
+    ============================ */
+    .link-card { display: flex; flex-direction: column; gap: 16px; }
+
+    .link-item {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+
+    .link-item-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .link-badge {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+      letter-spacing: 0.08em;
+    }
+
+    .link-badge.mobile { background: rgba(6,182,212,0.15); color: var(--accent-cyan); border: 1px solid rgba(6,182,212,0.3); }
+    .link-badge.obs { background: rgba(99,102,241,0.15); color: var(--accent-purple); border: 1px solid rgba(99,102,241,0.3); }
+
+    .link-url {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      word-break: break-all;
+      line-height: 1.5;
+    }
+
+    .qr-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #ffffff;
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-top: 12px;
+    }
+
+    #qrcode canvas, #qrcode img { border-radius: 6px; }
+
+    /* ============================
+       STATUS MONITOR
+    ============================ */
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .status-item {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      text-align: center;
+      transition: var(--transition);
+    }
+
+    .status-item.connected {
+      border-color: rgba(16, 185, 129, 0.4);
+      background: rgba(16, 185, 129, 0.05);
+    }
+
+    .status-icon { font-size: 1.8rem; margin-bottom: 6px; display: block; }
+    .status-name { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
+    .status-value { font-size: 0.78rem; font-weight: 600; margin-top: 4px; }
+    .status-value.online { color: var(--accent-green); }
+    .status-value.offline { color: var(--text-muted); }
+
+    /* ============================
+       REMOTE CONTROL PANEL
+    ============================ */
+    .control-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .control-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 18px 12px;
+      border-radius: var(--radius);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: var(--transition);
+      font-family: 'Inter', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+
+    .control-btn:hover:not(:disabled) {
+      border-color: var(--border-bright);
+      color: var(--text-primary);
+      background: var(--bg-card-hover);
+      transform: translateY(-2px);
+    }
+
+    .control-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .control-btn.active {
+      border-color: rgba(99, 102, 241, 0.5);
+      background: rgba(99, 102, 241, 0.1);
+      color: var(--accent-purple);
+    }
+
+    .control-btn .icon { font-size: 1.5rem; }
+
+    .control-full { grid-column: 1 / -1; }
+
+    .resolution-select {
+      width: 100%;
+      padding: 12px 14px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-primary);
+      font-size: 0.85rem;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      transition: var(--transition);
+      outline: none;
+      appearance: none;
+    }
+
+    .resolution-select:hover, .resolution-select:focus {
+      border-color: var(--border-bright);
+    }
+
+    /* ============================
+       ACTIVITY LOG
+    ============================ */
+    .log-container {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      height: 160px;
+      overflow-y: auto;
+      padding: 10px 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+    }
+
+    .log-container::-webkit-scrollbar { width: 4px; }
+    .log-container::-webkit-scrollbar-track { background: transparent; }
+    .log-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .log-entry {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 4px;
+      line-height: 1.5;
+    }
+
+    .log-time { color: var(--text-muted); flex-shrink: 0; }
+    .log-msg.info { color: var(--accent-cyan); }
+    .log-msg.success { color: var(--accent-green); }
+    .log-msg.error { color: var(--accent-red); }
+    .log-msg.warn { color: var(--accent-orange); }
+    .log-msg.default { color: var(--text-secondary); }
+
+    /* ============================
+       BOTTOM GRID (Full Width)
+    ============================ */
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 700px) {
+      .bottom-grid { grid-template-columns: 1fr; }
+      .control-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    /* ============================
+       TOOLTIP / NOTIFICATION
+    ============================ */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 12px 20px;
+      border-radius: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-bright);
+      color: var(--text-primary);
+      font-size: 0.82rem;
+      font-weight: 500;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+      z-index: 9999;
+      transform: translateY(80px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .toast.show { transform: translateY(0); opacity: 1; }
+  </style>
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- ======== HEADER ======== -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">📡</div>
+      <div class="logo-text">
+        <h1>Cam Controller</h1>
+        <p>Mobile Camera → OBS Studio via WebRTC</p>
+      </div>
+    </div>
+    <div class="status-badge" id="server-status-badge">
+      <div class="status-dot" id="server-dot"></div>
+      <span id="server-status-text">Menghubungkan...</span>
+    </div>
+  </header>
+
+  <!-- ======== ROOM ID ======== -->
+  <div class="room-section">
+    <div style="flex:1; min-width:200px;">
+      <div class="room-label">🔑 Room / Session ID</div>
+      <div class="room-id-display" id="room-id-display">—</div>
+      <div class="room-actions">
+        <button class="btn btn-primary" id="btn-new-room" onclick="generateNewRoom()">✨ Buat Room Baru</button>
+        <button class="btn btn-secondary" id="btn-copy-room" onclick="copyRoomId()">📋 Salin ID</button>
+      </div>
+    </div>
+    <div style="font-size:0.8rem; color:var(--text-muted); max-width:280px; line-height:1.7;">
+      💡 <strong style="color:var(--text-secondary);">Cara pakai:</strong> Buat Room baru, lalu bagikan link HP ke ponsel Anda, dan masukkan link OBS ke Browser Source OBS Studio.
+    </div>
+  </div>
+
+  <!-- ======== MAIN GRID ======== -->
+  <div class="main-grid">
+
+    <!-- Card: Link & QR Code -->
+    <div class="card">
+      <div class="card-title">🔗 Link Akses</div>
+      <div class="link-card">
+
+        <!-- Link HP -->
+        <div class="link-item">
+          <div class="link-item-header">
+            <span class="link-badge mobile">📱 HP / Kamera</span>
+            <button class="btn btn-secondary" style="padding:4px 10px; font-size:0.72rem;" onclick="copyLink('mobile')">Salin</button>
+          </div>
+          <div class="link-url" id="link-mobile">Buat room terlebih dahulu...</div>
+          <div class="qr-container" id="qr-wrapper">
+            <div id="qrcode"></div>
+          </div>
+        </div>
+
+        <!-- Link OBS -->
+        <div class="link-item">
+          <div class="link-item-header">
+            <span class="link-badge obs">🎬 OBS Browser Source</span>
+            <button class="btn btn-secondary" style="padding:4px 10px; font-size:0.72rem;" onclick="copyLink('obs')">Salin</button>
+          </div>
+          <div class="link-url" id="link-obs">Buat room terlebih dahulu...</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Card: Status Monitor -->
+    <div class="card">
+      <div class="card-title">📊 Status Koneksi</div>
+      <div class="status-grid" style="margin-bottom:16px;">
+        <div class="status-item" id="status-dashboard">
+          <span class="status-icon">🖥️</span>
+          <div class="status-name">Dashboard</div>
+          <div class="status-value offline" id="status-dashboard-val">Offline</div>
+        </div>
+        <div class="status-item" id="status-sender">
+          <span class="status-icon">📱</span>
+          <div class="status-name">HP / Sender</div>
+          <div class="status-value offline" id="status-sender-val">Offline</div>
+        </div>
+        <div class="status-item" id="status-receiver">
+          <span class="status-icon">🎬</span>
+          <div class="status-name">OBS / Receiver</div>
+          <div class="status-value offline" id="status-receiver-val">Offline</div>
+        </div>
+      </div>
+
+      <!-- WebRTC Connection State -->
+      <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius); padding:14px;">
+        <div class="room-label" style="margin-bottom:8px;">WebRTC P2P State</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="status-dot" id="webrtc-dot"></div>
+          <span style="font-size:0.82rem;" id="webrtc-state-text">Menunggu koneksi...</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ======== BOTTOM GRID ======== -->
+  <div class="bottom-grid">
+
+    <!-- Card: Remote Control -->
+    <div class="card">
+      <div class="card-title">🎮 Remote Control HP</div>
+      <div class="control-grid">
+        <button class="control-btn" id="btn-flip-cam" onclick="sendCommand('flip-camera')" disabled>
+          <span class="icon">🔄</span>
+          <span>Ganti Kamera</span>
+        </button>
+        <button class="control-btn" id="btn-toggle-mic" onclick="sendCommand('toggle-mic')" disabled>
+          <span class="icon" id="mic-icon">🎤</span>
+          <span id="mic-label">Mute Mic</span>
+        </button>
+        <button class="control-btn" id="btn-toggle-flash" onclick="sendCommand('toggle-flash')" disabled>
+          <span class="icon" id="flash-icon">🔦</span>
+          <span id="flash-label">Flash ON</span>
+        </button>
+        <button class="control-btn" id="btn-screenshot" onclick="sendCommand('screenshot')" disabled>
+          <span class="icon">📸</span>
+          <span>Screenshot</span>
+        </button>
+        <div class="control-full">
+          <label style="font-size:0.72rem; color:var(--text-muted); display:block; margin-bottom:6px;">📐 Resolusi Kamera</label>
+          <select class="resolution-select" id="resolution-select" onchange="sendCommand('change-resolution', this.value)" disabled>
+            <option value="4k">4K (3840×2160)</option>
+            <option value="1080p" selected>Full HD (1920×1080)</option>
+            <option value="720p">HD (1280×720)</option>
+            <option value="480p">SD (854×480)</option>
+            <option value="360p">Low (640×360)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card: Activity Log -->
+    <div class="card">
+      <div class="card-title" style="justify-content:space-between;">
+        <span>📋 Activity Log</span>
+        <button class="btn btn-secondary" style="padding:4px 10px; font-size:0.68rem;" onclick="clearLog()">Bersihkan</button>
+      </div>
+      <div class="log-container" id="activity-log">
+        <div class="log-entry">
+          <span class="log-time">--:--:--</span>
+          <span class="log-msg default">Menunggu server...</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Toast Notification -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // ============================================================
+  // KONFIGURASI & STATE
+  // ============================================================
+  const socket = io();
+  let currentRoomId = null;
+  let isMuted = false;
+  let isFlashOn = false;
+
+  // BASE_URL untuk akses dari PC (localhost) — untuk link OBS
+  const BASE_URL_LOCAL = window.location.origin;
+
+  // BASE_URL untuk akses dari HP (IP jaringan lokal) — untuk QR Code & link HP
+  // Akan di-fetch dari server saat halaman dimuat
+  let BASE_URL_LAN = BASE_URL_LOCAL;
+
+  // ============================================================
+  // FETCH IP JARINGAN DARI SERVER
+  // Endpoint /api/info mengembalikan IP LAN mesin ini.
+  // Penting agar QR Code berisi IP yang bisa diakses HP di WiFi yang sama.
+  // ============================================================
+  async function fetchServerInfo() {
+    try {
+      const res = await fetch('/api/info');
+      const data = await res.json();
+      if (data.localIP && data.localIP !== 'localhost') {
+        BASE_URL_LAN = `http://${data.localIP}:${data.port}`;
+        log(`IP Jaringan Lokal terdeteksi: ${data.localIP}`, 'info');
+      } else {
+        log('IP LAN tidak ditemukan, menggunakan localhost. Pastikan HP & PC satu WiFi.', 'warn');
+      }
+    } catch (e) {
+      log('Gagal fetch info server, menggunakan fallback localhost.', 'warn');
+    }
+  }
+
+  // ============================================================
+  // UTILITAS
+  // ============================================================
+  function log(message, type = 'default') {
+    const logEl = document.getElementById('activity-log');
+    const now = new Date();
+    const time = now.toTimeString().slice(0, 8);
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${message}</span>`;
+    logEl.appendChild(entry);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function clearLog() {
+    document.getElementById('activity-log').innerHTML = '';
+  }
+
+  function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3000);
+  }
+
+  function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => showToast('✅ Disalin ke clipboard!'));
+  }
+
+  function copyRoomId() {
+    if (currentRoomId) copyToClipboard(currentRoomId);
+  }
+
+  function copyLink(type) {
+    const el = document.getElementById(type === 'mobile' ? 'link-mobile' : 'link-obs');
+    copyToClipboard(el.textContent);
+  }
+
+  // ============================================================
+  // GENERATE ROOM ID
+  // ============================================================
+  async function generateNewRoom() {
+    // Pastikan IP LAN sudah di-fetch sebelum generate link
+    await fetchServerInfo();
+
+    // Buat ID unik 6 karakter alfanumerik
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let id = '';
+    for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
+    currentRoomId = id;
+
+    document.getElementById('room-id-display').textContent = id;
+    document.getElementById('btn-copy-room').disabled = false;
+
+    // Link HP menggunakan IP LAN agar bisa diakses dari jaringan WiFi yang sama
+    const mobileLink = `${BASE_URL_LAN}/kamera.html?room=${id}`;
+    // Link OBS menggunakan IP LAN juga (OBS bisa di PC yang sama atau berbeda)
+    const obsLink = `${BASE_URL_LAN}/obs.html?room=${id}`;
+
+    document.getElementById('link-mobile').textContent = mobileLink;
+    document.getElementById('link-obs').textContent = obsLink;
+
+    // Generate QR Code dengan IP LAN (bukan localhost!)
+    const qrEl = document.getElementById('qrcode');
+    qrEl.innerHTML = '';
+    new QRCode(qrEl, {
+      text: mobileLink,
+      width: 180,
+      height: 180,
+      colorDark: '#000000',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+
+    // Bergabung ke room sebagai dashboard
+    socket.emit('join-room', { roomId: id, role: 'dashboard' });
+    log(`Room baru dibuat: ${id}`, 'success');
+    log(`Link HP: ${mobileLink}`, 'info');
+    log(`Link OBS: ${obsLink}`, 'info');
+    showToast(`🔑 Room ${id} dibuat!`);
+
+    // Reset status
+    updateMemberStatus({ dashboard: true, sender: false, receiver: false });
+  }
+
+  // ============================================================
+  // UPDATE STATUS UI
+  // ============================================================
+  function updateMemberStatus(members) {
+    const setStatus = (id, valId, isOnline) => {
+      const el = document.getElementById(id);
+      const valEl = document.getElementById(valId);
+      if (isOnline) {
+        el.classList.add('connected');
+        valEl.textContent = 'Online';
+        valEl.className = 'status-value online';
+      } else {
+        el.classList.remove('connected');
+        valEl.textContent = 'Offline';
+        valEl.className = 'status-value offline';
+      }
+    };
+
+    setStatus('status-dashboard', 'status-dashboard-val', members.dashboard);
+    setStatus('status-sender', 'status-sender-val', members.sender);
+    setStatus('status-receiver', 'status-receiver-val', members.receiver);
+
+    // Aktifkan tombol remote control hanya jika HP (sender) online
+    const senderOnline = members.sender;
+    ['btn-flip-cam', 'btn-toggle-mic', 'btn-toggle-flash', 'btn-screenshot', 'resolution-select'].forEach(id => {
+      document.getElementById(id).disabled = !senderOnline;
+    });
+  }
+
+  // ============================================================
+  // REMOTE CONTROL
+  // ============================================================
+  function sendCommand(command, value = null) {
+    if (!currentRoomId) return;
+    socket.emit('remote-command', { roomId: currentRoomId, command, value });
+    log(`Perintah dikirim: ${command}${value ? ' → ' + value : ''}`, 'info');
+
+    // Toggle state UI lokal
+    if (command === 'toggle-mic') {
+      isMuted = !isMuted;
+      document.getElementById('mic-icon').textContent = isMuted ? '🔇' : '🎤';
+      document.getElementById('mic-label').textContent = isMuted ? 'Unmute Mic' : 'Mute Mic';
+      document.getElementById('btn-toggle-mic').classList.toggle('active', isMuted);
+    }
+    if (command === 'toggle-flash') {
+      isFlashOn = !isFlashOn;
+      document.getElementById('flash-icon').textContent = isFlashOn ? '💡' : '🔦';
+      document.getElementById('flash-label').textContent = isFlashOn ? 'Flash OFF' : 'Flash ON';
+      document.getElementById('btn-toggle-flash').classList.toggle('active', isFlashOn);
+    }
+  }
+
+  // ============================================================
+  // SOCKET.IO EVENT LISTENERS
+  // ============================================================
+  socket.on('connect', () => {
+    document.getElementById('server-dot').className = 'status-dot active';
+    document.getElementById('server-status-text').textContent = 'Server Terhubung';
+    log('Terhubung ke Signaling Server ✅', 'success');
+  });
+
+  socket.on('disconnect', () => {
+    document.getElementById('server-dot').className = 'status-dot error';
+    document.getElementById('server-status-text').textContent = 'Server Terputus';
+    log('Koneksi ke server terputus ❌', 'error');
+  });
+
+  socket.on('room-status', ({ members }) => {
+    updateMemberStatus(members);
+    log(`Status room diperbarui — Dashboard:${members.dashboard?'✅':'❌'} HP:${members.sender?'✅':'❌'} OBS:${members.receiver?'✅':'❌'}`, 'default');
+    if (members.sender && members.receiver) {
+      log('HP & OBS terhubung! WebRTC P2P sedang dimulai...', 'success');
+    }
+  });
+
+  // Pembaruan WebRTC State (diteruskan dari halaman kamera via server jika diperlukan)
+  socket.on('webrtc-state', ({ state }) => {
+    const dot = document.getElementById('webrtc-dot');
+    const text = document.getElementById('webrtc-state-text');
+    const stateMap = {
+      connecting: { cls: 'partial', label: 'Menghubungkan P2P...' },
+      connected: { cls: 'active', label: '🟢 P2P Tersambung — Streaming Aktif!' },
+      disconnected: { cls: 'error', label: '🔴 P2P Terputus' },
+      failed: { cls: 'error', label: '❌ Koneksi P2P Gagal' },
+    };
+    const s = stateMap[state] || { cls: '', label: state };
+    dot.className = `status-dot ${s.cls}`;
+    text.textContent = s.label;
+    log(`WebRTC State: ${s.label}`, state === 'connected' ? 'success' : (state === 'failed' ? 'error' : 'warn'));
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Kamera HP – Mobile Sender</title>
+  <meta name="description" content="Halaman kamera untuk streaming video dari HP ke OBS melalui WebRTC." />
+
+  <!-- Socket.io Client -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <style>
+    /* ============================
+       RESET & VARIABEL
+    ============================ */
+    :root {
+      --bg: #090914;
+      --surface: rgba(255,255,255,0.05);
+      --border: rgba(255,255,255,0.1);
+      --accent: #6366f1;
+      --accent2: #06b6d4;
+      --green: #10b981;
+      --red: #ef4444;
+      --orange: #f59e0b;
+      --text: #f0f0ff;
+      --muted: #80809a;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      color: var(--text);
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ============================
+       PREVIEW VIDEO (FULL SCREEN)
+    ============================ */
+    #local-video {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      /* Mirror efek agar terasa natural di preview lokal */
+      transform: scaleX(-1);
+      background: #000;
+      z-index: 0;
+    }
+
+    /* ============================
+       OVERLAY UI
+    ============================ */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* --- TOP BAR --- */
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%);
+      pointer-events: auto;
+    }
+
+    .app-name {
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      background: rgba(239,68,68,0.2);
+      border: 1px solid rgba(239,68,68,0.5);
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--red);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .live-badge.visible { opacity: 1; }
+
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--red);
+      animation: blink 1.2s infinite;
+    }
+
+    @keyframes blink { 0%, 100% { opacity:1; } 50% { opacity:0.2; } }
+
+    /* --- STATUS PILL --- */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--muted);
+      transition: all 0.3s;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: all 0.3s;
+    }
+
+    .status-dot.connecting { background: var(--orange); animation: blink 1s infinite; }
+    .status-dot.active { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.error { background: var(--red); }
+
+    /* --- BOTTOM BAR --- */
+    .bottom-bar {
+      padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+      background: linear-gradient(0deg, rgba(0,0,0,0.75) 0%, transparent 100%);
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+    }
+
+    /* Tombol kontrol lingkaran */
+    .ctrl-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.12);
+      backdrop-filter: blur(10px);
+      border: 1.5px solid rgba(255,255,255,0.2);
+      color: #fff;
+      cursor: pointer;
+      transition: all 0.2s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      font-size: 1.5rem;
+      line-height: 1;
+    }
+
+    .ctrl-btn:active { transform: scale(0.88); }
+    .ctrl-btn.active { background: rgba(99,102,241,0.3); border-color: rgba(99,102,241,0.6); }
+    .ctrl-btn.muted { background: rgba(239,68,68,0.25); border-color: rgba(239,68,68,0.5); }
+    .ctrl-btn-label { font-size: 0.55rem; font-weight: 600; letter-spacing: 0.04em; color: rgba(255,255,255,0.6); margin-top: 2px; display: block; }
+
+    /* Tombol utama LIVE lebih besar */
+    .ctrl-btn.main {
+      width: 76px;
+      height: 76px;
+      background: rgba(99,102,241,0.25);
+      border: 2px solid rgba(99,102,241,0.7);
+      font-size: 1.8rem;
+    }
+
+    /* ============================
+       PERMISSION & ERROR SCREEN
+    ============================ */
+    #permission-screen, #error-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      padding: 30px;
+      text-align: center;
+      gap: 16px;
+    }
+
+    .perm-icon { font-size: 4rem; }
+    .perm-title { font-size: 1.3rem; font-weight: 700; }
+    .perm-desc { font-size: 0.85rem; color: var(--muted); line-height: 1.6; max-width: 280px; }
+
+    .start-btn {
+      margin-top: 10px;
+      padding: 14px 32px;
+      background: linear-gradient(135deg, var(--accent), #7c3aed);
+      border: none;
+      border-radius: 50px;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(99,102,241,0.4);
+      transition: all 0.2s;
+    }
+
+    .start-btn:active { transform: scale(0.96); }
+
+    #error-screen { display: none; }
+    .error-msg { color: var(--red); font-size: 0.85rem; line-height: 1.6; max-width: 280px; }
+
+    /* ============================
+       RESOLUSI INFO
+    ============================ */
+    .res-info {
+      position: fixed;
+      top: 56px;
+      right: 14px;
+      z-index: 20;
+      font-size: 0.65rem;
+      color: rgba(255,255,255,0.5);
+      background: rgba(0,0,0,0.4);
+      backdrop-filter: blur(6px);
+      padding: 4px 10px;
+      border-radius: 999px;
+      pointer-events: none;
+    }
+
+    /* ============================
+       TOAST
+    ============================ */
+    .toast {
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: rgba(30,30,50,0.95);
+      border: 1px solid rgba(99,102,241,0.4);
+      backdrop-filter: blur(10px);
+      color: var(--text);
+      padding: 10px 20px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      z-index: 200;
+      opacity: 0;
+      transition: all 0.3s;
+      white-space: nowrap;
+    }
+
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+  <!-- ======== PERMISSION SCREEN ======== -->
+  <div id="permission-screen">
+    <div class="perm-icon">📡</div>
+    <div class="perm-title">Kamera & Mikrofon</div>
+    <div class="perm-desc">
+      Aplikasi membutuhkan akses ke kamera dan mikrofon HP Anda untuk mulai streaming ke OBS Studio.
+    </div>
+    <button class="start-btn" onclick="startCamera()">🎬 Mulai Kamera</button>
+  </div>
+
+  <!-- ======== ERROR SCREEN ======== -->
+  <div id="error-screen">
+    <div class="perm-icon">⚠️</div>
+    <div class="perm-title">Terjadi Masalah</div>
+    <div class="error-msg" id="error-message">Gagal mengakses kamera.</div>
+    <button class="start-btn" onclick="startCamera()">🔄 Coba Lagi</button>
+  </div>
+
+  <!-- ======== VIDEO PREVIEW ======== -->
+  <video id="local-video" autoplay playsinline muted></video>
+
+  <!-- ======== RESOLUSI INFO ======== -->
+  <div class="res-info" id="res-info">—</div>
+
+  <!-- ======== OVERLAY UI ======== -->
+  <div class="overlay">
+    <!-- Top Bar -->
+    <div class="top-bar">
+      <div class="app-name">📡 CamStream</div>
+      <div class="live-badge" id="live-badge">
+        <div class="live-dot"></div>
+        LIVE
+      </div>
+      <div class="status-pill" id="status-pill">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-text">Menghubungkan...</span>
+      </div>
+    </div>
+
+    <!-- Bottom Bar -->
+    <div class="bottom-bar">
+      <!-- Flip Kamera -->
+      <button class="ctrl-btn" id="btn-flip" onclick="flipCamera()" title="Ganti Kamera">
+        🔄
+        <span class="ctrl-btn-label">FLIP</span>
+      </button>
+
+      <!-- Toggle Flash -->
+      <button class="ctrl-btn" id="btn-flash" onclick="toggleFlash()" title="Toggle Flash">
+        🔦
+        <span class="ctrl-btn-label">FLASH</span>
+      </button>
+
+      <!-- Mute Mic -->
+      <button class="ctrl-btn" id="btn-mic" onclick="toggleMic()" title="Mute/Unmute Mic">
+        🎤
+        <span class="ctrl-btn-label">MIC</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast Notif -->
+  <div class="toast" id="toast"></div>
+
+<script>
+  // ============================================================
+  // KONFIGURASI WEBRTC
+  // ============================================================
+  const ICE_CONFIG = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      // Tambahkan TURN server di sini jika dibutuhkan untuk jaringan yang strict (NAT)
+      // { urls: 'turn:your.turn.server', username: 'user', credential: 'pass' }
+    ],
+  };
+
+  // Profil resolusi yang didukung
+  const RESOLUTION_PROFILES = {
+    '4k':    { width: 3840, height: 2160 },
+    '1080p': { width: 1920, height: 1080 },
+    '720p':  { width: 1280, height: 720  },
+    '480p':  { width: 854,  height: 480  },
+    '360p':  { width: 640,  height: 360  },
+  };
+
+  // ============================================================
+  // STATE APLIKASI
+  // ============================================================
+  const socket = io();
+  let localStream = null;       // MediaStream dari getUserMedia
+  let peerConnection = null;    // RTCPeerConnection
+  let currentFacingMode = 'environment'; // 'user' (depan) atau 'environment' (belakang)
+  let isMuted = false;
+  let isFlashOn = false;
+  let roomId = null;
+
+  // Baca Room ID dari URL query parameter (?room=XXXXXX)
+  const urlParams = new URLSearchParams(window.location.search);
+  roomId = urlParams.get('room');
+
+  if (!roomId) {
+    showError('Tidak ada Room ID di URL. Mohon gunakan link dari Dashboard.');
+  }
+
+  // ============================================================
+  // UI HELPERS
+  // ============================================================
+  function setStatus(text, state) {
+    document.getElementById('status-text').textContent = text;
+    const dot = document.getElementById('status-dot');
+    dot.className = `status-dot ${state}`; // state: 'connecting', 'active', 'error'
+  }
+
+  function showToast(msg, duration = 2500) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), duration);
+  }
+
+  function showError(msg) {
+    document.getElementById('permission-screen').style.display = 'none';
+    document.getElementById('error-screen').style.display = 'flex';
+    document.getElementById('error-message').textContent = msg;
+  }
+
+  function updateResInfo(stream) {
+    const track = stream?.getVideoTracks()[0];
+    if (track) {
+      const s = track.getSettings();
+      document.getElementById('res-info').textContent = `${s.width || '?'}×${s.height || '?'}`;
+    }
+  }
+
+  // ============================================================
+  // MEMULAI KAMERA (getUserMedia)
+  // ============================================================
+  async function startCamera(facingMode = currentFacingMode, resolution = '1080p') {
+    document.getElementById('error-screen').style.display = 'none';
+
+    const profile = RESOLUTION_PROFILES[resolution] || RESOLUTION_PROFILES['1080p'];
+
+    const constraints = {
+      video: {
+        facingMode: facingMode,
+        width: { ideal: profile.width },
+        height: { ideal: profile.height },
+        frameRate: { ideal: 30, max: 60 },
+      },
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    };
+
+    try {
+      // Hentikan stream lama jika ada
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+      }
+
+      localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      currentFacingMode = facingMode;
+
+      // Tampilkan preview lokal
+      document.getElementById('local-video').srcObject = localStream;
+      document.getElementById('permission-screen').style.display = 'none';
+
+      updateResInfo(localStream);
+      showToast(`✅ Kamera ${facingMode === 'user' ? 'Depan' : 'Belakang'} aktif`);
+
+      // Jika peerConnection sudah ada, ganti track video
+      if (peerConnection) {
+        const videoTrack = localStream.getVideoTracks()[0];
+        const sender = peerConnection.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) await sender.replaceTrack(videoTrack);
+      }
+
+      // Bergabung ke room sebagai sender
+      socket.emit('join-room', { roomId, role: 'sender' });
+      setStatus('Menunggu OBS...', 'connecting');
+
+    } catch (err) {
+      console.error('getUserMedia error:', err);
+      showError(`Gagal akses kamera: ${err.message}. Pastikan browser Anda mengizinkan akses kamera dan mikrofon.`);
+    }
+  }
+
+  // ============================================================
+  // WEBRTC: MEMBUAT PEER CONNECTION
+  // ============================================================
+  function createPeerConnection() {
+    // Tutup koneksi lama jika ada
+    if (peerConnection) peerConnection.close();
+
+    peerConnection = new RTCPeerConnection(ICE_CONFIG);
+
+    // Tambahkan semua track lokal ke peer connection
+    localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localStream);
+    });
+
+    // Kirim ICE candidates ke Receiver melalui signaling server
+    peerConnection.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        socket.emit('webrtc-ice-candidate', {
+          roomId,
+          candidate,
+          targetRole: 'receiver', // tujuan adalah receiver (OBS)
+        });
+      }
+    };
+
+    // Monitor status koneksi
+    peerConnection.onconnectionstatechange = () => {
+      const state = peerConnection.connectionState;
+      console.log('P2P Connection State:', state);
+
+      const stateMap = {
+        connecting:    { text: 'Menghubungkan P2P...', state: 'connecting' },
+        connected:     { text: '🟢 LIVE ke OBS',       state: 'active'     },
+        disconnected:  { text: 'Koneksi Terputus',     state: 'error'      },
+        failed:        { text: 'Koneksi Gagal',        state: 'error'      },
+        closed:        { text: 'Koneksi Ditutup',      state: 'error'      },
+      };
+
+      const s = stateMap[state] || { text: state, state: '' };
+      setStatus(s.text, s.state);
+
+      // Tampilkan badge LIVE hanya jika tersambung
+      document.getElementById('live-badge').classList.toggle('visible', state === 'connected');
+
+      // Teruskan state ke dashboard via server
+      socket.emit('webrtc-state-update', { roomId, state });
+    };
+
+    peerConnection.onicegatheringstatechange = () => {
+      console.log('ICE Gathering State:', peerConnection.iceGatheringState);
+    };
+
+    return peerConnection;
+  }
+
+  // ============================================================
+  // WEBRTC SIGNALING: MEMBUAT & MENGIRIM OFFER
+  // ============================================================
+  async function createAndSendOffer() {
+    if (!localStream) return;
+    createPeerConnection();
+    setStatus('Membuat Offer WebRTC...', 'connecting');
+
+    try {
+      const offer = await peerConnection.createOffer({
+        offerToReceiveAudio: false, // Kita yang mengirim, bukan menerima
+        offerToReceiveVideo: false,
+      });
+
+      await peerConnection.setLocalDescription(offer);
+
+      socket.emit('webrtc-offer', { roomId, offer });
+      console.log('SDP Offer dikirim ke Receiver.');
+    } catch (err) {
+      console.error('Gagal membuat offer:', err);
+      showToast('❌ Gagal memulai WebRTC');
+    }
+  }
+
+  // ============================================================
+  // KONTROL KAMERA LOKAL (tombol di HP)
+  // ============================================================
+  async function flipCamera() {
+    const newFacing = currentFacingMode === 'environment' ? 'user' : 'environment';
+    await startCamera(newFacing);
+    document.getElementById('btn-flip').classList.toggle('active', newFacing === 'user');
+  }
+
+  async function toggleFlash() {
+    const track = localStream?.getVideoTracks()[0];
+    if (!track) return;
+
+    const capabilities = track.getCapabilities();
+    if (!capabilities.torch) {
+      showToast('⚠️ Kamera ini tidak mendukung flash');
+      return;
+    }
+
+    isFlashOn = !isFlashOn;
+    await track.applyConstraints({ advanced: [{ torch: isFlashOn }] });
+    document.getElementById('btn-flash').textContent = isFlashOn ? '💡' : '🔦';
+    document.getElementById('btn-flash').classList.toggle('active', isFlashOn);
+    showToast(isFlashOn ? '💡 Flash ON' : '🔦 Flash OFF');
+  }
+
+  function toggleMic() {
+    isMuted = !isMuted;
+    localStream?.getAudioTracks().forEach(t => { t.enabled = !isMuted; });
+    const btn = document.getElementById('btn-mic');
+    btn.textContent = isMuted ? '🔇' : '🎤';
+    btn.classList.toggle('muted', isMuted);
+    showToast(isMuted ? '🔇 Mikrofon Di-mute' : '🎤 Mikrofon Aktif');
+  }
+
+  // ============================================================
+  // SOCKET.IO EVENT LISTENERS
+  // ============================================================
+
+  // Server memerintahkan Sender untuk mulai streaming (Receiver sudah siap)
+  socket.on('start-streaming', () => {
+    console.log('Signal dari server: mulai buat Offer WebRTC.');
+    createAndSendOffer();
+  });
+
+  // Menerima SDP Answer dari Receiver (OBS)
+  socket.on('webrtc-answer', async ({ answer }) => {
+    if (!peerConnection) return;
+    try {
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+      console.log('SDP Answer dari OBS diterima dan diset.');
+    } catch (err) {
+      console.error('Gagal set remote description:', err);
+    }
+  });
+
+  // Menerima ICE Candidate dari Receiver (OBS)
+  socket.on('webrtc-ice-candidate', async ({ candidate }) => {
+    if (!peerConnection || !candidate) return;
+    try {
+      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (err) {
+      console.error('Gagal tambah ICE candidate:', err);
+    }
+  });
+
+  // ============================================================
+  // REMOTE COMMAND DARI DASHBOARD
+  // ============================================================
+  socket.on('remote-command', async ({ command, value }) => {
+    console.log('Perintah diterima dari Dashboard:', command, value);
+
+    switch (command) {
+      case 'flip-camera':
+        await flipCamera();
+        showToast('🔄 Kamera dibalik dari Dashboard');
+        break;
+
+      case 'toggle-mic':
+        toggleMic();
+        break;
+
+      case 'toggle-flash':
+        await toggleFlash();
+        break;
+
+      case 'change-resolution':
+        const res = value || '1080p';
+        await startCamera(currentFacingMode, res);
+        showToast(`📐 Resolusi diubah ke ${res}`);
+        break;
+
+      case 'screenshot':
+        takeScreenshot();
+        break;
+    }
+  });
+
+  // Fungsi Screenshot (tangkap frame dari video)
+  function takeScreenshot() {
+    const video = document.getElementById('local-video');
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    // Hilangkan efek mirror saat screenshot
+    ctx.drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `camstream-${Date.now()}.jpg`;
+    a.click();
+    showToast('📸 Screenshot disimpan!');
+  }
+
+  // ============================================================
+  // SOCKET CONNECT / DISCONNECT
+  // ============================================================
+  socket.on('connect', () => {
+    setStatus('Server terhubung', 'active');
+    // Jika sudah punya stream, langsung bergabung ke room
+    if (localStream) socket.emit('join-room', { roomId, role: 'sender' });
+  });
+
+  socket.on('disconnect', () => {
+    setStatus('Server terputus', 'error');
+    document.getElementById('live-badge').classList.remove('visible');
+  });
+</script>
+</body>
+</html>
