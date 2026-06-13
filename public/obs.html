@@ -230,10 +230,16 @@
       
       if (isFlvPlaying) return;
       
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const isHttps = location.protocol === 'https:';
+      const protocol = isHttps ? 'wss:' : 'ws:';
       const wsHost = location.hostname;
       const streamKey = `${ROOM_ID}_${CAM_ID}`;
-      const flvUrl = `${protocol}//${wsHost}:${flvPort}/live/${streamKey}.flv`;
+      
+      // Di produksi (HTTPS), kita lewat proxy Nginx di port 443 (tanpa port tambahan).
+      // Di lokal (HTTP), kita langsung tembak ke port FLV (3001).
+      const flvUrl = isHttps 
+        ? `${protocol}//${location.host}/live/${streamKey}.flv`
+        : `${protocol}//${wsHost}:${flvPort}/live/${streamKey}.flv`;
       
       console.log('[RTMP] Connecting to:', flvUrl);
       
