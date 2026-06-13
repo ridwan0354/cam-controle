@@ -31,7 +31,7 @@
     <div class="ov-sub" id="ov-sub">Pastikan HP sudah membuka link kamera</div>
   </div>
 
-  <video id="remote-video" autoplay playsinline></video>
+  <video id="remote-video" autoplay playsinline muted></video>
   <div class="cam-tag" id="cam-tag"></div>
 
   <script>
@@ -80,10 +80,12 @@
       pc = new RTCPeerConnection(STUN_SERVERS);
 
       // Terima video track dari sender
-      pc.ontrack = ({ streams: [stream] }) => {
+      pc.ontrack = (event) => {
         const video = document.getElementById('remote-video');
+        const stream = event.streams[0] || new MediaStream([event.track]);
         video.srcObject = stream;
-        video.play().catch(() => {});
+        video.muted = true;
+        video.play().catch(e => console.warn('play error:', e));
       };
 
       // Kirim ICE candidate ke sender
@@ -94,11 +96,15 @@
       };
 
       pc.onconnectionstatechange = () => {
+        console.log('[WebRTC] State:', pc.connectionState);
         if (pc.connectionState === 'connected') {
           document.getElementById('overlay').classList.add('hidden');
           const tag = document.getElementById('cam-tag');
           tag.textContent = `📱 Cam: ${CAM_ID}`;
           tag.classList.add('show');
+          // Force play sekali lagi setelah connected
+          const vid = document.getElementById('remote-video');
+          if (vid.srcObject) vid.play().catch(() => {});
         } else if (['disconnected', 'failed'].includes(pc.connectionState)) {
           document.getElementById('overlay').classList.remove('hidden');
           document.getElementById('ov-title').textContent = '📡 Kamera Terputus';
