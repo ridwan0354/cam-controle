@@ -658,7 +658,8 @@
           cameraPayloads = Object.entries(savedCams).map(([id, cam]) => ({
             id,
             name: cam.name,
-            orientation: cam.orientation || 'landscape'
+            orientation: cam.orientation || 'landscape',
+            type: cam.type || 'webrtc'
           }));
         } catch {}
       }
@@ -678,7 +679,7 @@
             cameras[camId] = cam;
             const mobileLink = `${BASE_URL}/kamera.html?room=${currentRoomId}&cam=${camId}&name=${encodeURIComponent(cam.name)}`;
             const obsLink    = `${BASE_URL}/obs.html?room=${currentRoomId}&cam=${camId}`;
-            renderCameraCard(camId, cam.name, mobileLink, obsLink);
+            renderCameraCard(camId, cam.name, mobileLink, obsLink, cam.type || 'webrtc');
             
             // Sync status kontrol tersimpan
             const resSelect = document.getElementById(`c-res-${camId}`);
