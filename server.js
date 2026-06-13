@@ -289,6 +289,8 @@ io.on('connection', (socket) => {
 // ============================================================
 // Node-Media-Server (RTMP Ingestion Server)
 // ============================================================
+const NMS_HTTP_PORT = parseInt(PORT) + 1; // e.g. 3001 atau 3101
+
 const nmsConfig = {
   rtmp: {
     port: 1935,
@@ -298,7 +300,7 @@ const nmsConfig = {
     ping_timeout: 60
   },
   http: {
-    port: 8000,
+    port: NMS_HTTP_PORT,
     allow_origin: '*'
   },
   logType: 1 // Hanya error/warning agar log server bersih
@@ -356,6 +358,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  🖥️  Dashboard (Lokal)   : http://localhost:${PORT}/dashboard.html`);
   console.log(`  🌐 Dashboard (Jaringan) : http://${LOCAL_IP}:${PORT}/dashboard.html`);
   console.log(`  🛸 Server RTMP          : rtmp://${LOCAL_IP}:1935/live`);
-  console.log(`  📺 WebSocket-FLV Player : ws://${LOCAL_IP}:8000/live/...`);
+  console.log(`  📺 WebSocket-FLV Player : ws://${LOCAL_IP}:${NMS_HTTP_PORT}/live/...`);
   console.log('============================================================\n');
 });

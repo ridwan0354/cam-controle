@@ -49,6 +49,18 @@
     let pc = null;
     let flvPlayer = null;
     let isFlvPlaying = false;
+    let flvPort = 8000; // default fallback
+
+    // Ambil port FLV secara dinamis dari server info
+    fetch('/api/info')
+      .then(r => r.json())
+      .then(d => {
+        if (d.flvPort) {
+          flvPort = d.flvPort;
+          console.log('[OBS] Dynamic FLV Port loaded:', flvPort);
+        }
+      })
+      .catch(e => console.warn('Failed to fetch api info:', e));
 
     const STUN_SERVERS = {
       iceServers: [
@@ -220,7 +232,6 @@
       
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsHost = location.hostname;
-      const flvPort = 8000;
       const streamKey = `${ROOM_ID}_${CAM_ID}`;
       const flvUrl = `${protocol}//${wsHost}:${flvPort}/live/${streamKey}.flv`;
       
