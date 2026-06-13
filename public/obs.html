@@ -130,17 +130,40 @@
       document.getElementById('ov-sub').textContent = `Cam ${CAM_ID} terputus. Menunggu reconnect...`;
     });
 
-    // Room status: update nama kamera
+    // Room status: update nama kamera dan orientasi
     socket.on('room-status', ({ cameras }) => {
       const cam = cameras[CAM_ID];
-      if (cam?.name) {
-        document.getElementById('cam-tag').textContent = `📱 ${cam.name}`;
-        document.title = `OBS: ${cam.name}`;
-        if (!cam.sender) {
-          document.getElementById('ov-title').textContent = `Menunggu ${cam.name}...`;
+      if (cam) {
+        if (cam.name) {
+          document.getElementById('cam-tag').textContent = `📱 ${cam.name}`;
+          document.title = `OBS: ${cam.name}`;
+          if (!cam.sender) {
+            document.getElementById('ov-title').textContent = `Menunggu ${cam.name}...`;
+          }
+        }
+        if (cam.orientation) {
+          applyOrientationStyle(cam.orientation);
         }
       }
     });
+
+    function applyOrientationStyle(orientation) {
+      const video = document.getElementById('remote-video');
+      if (!video) return;
+      if (orientation === 'portrait') {
+        video.style.width = 'auto';
+        video.style.height = '100%';
+        video.style.aspectRatio = '9/16';
+        video.style.margin = '0 auto';
+        video.style.objectFit = 'cover';
+      } else {
+        video.style.width = '100%';
+        video.style.height = '100%';
+        video.style.aspectRatio = '16/9';
+        video.style.margin = '0';
+        video.style.objectFit = 'cover';
+      }
+    }
   </script>
 </body>
 </html>

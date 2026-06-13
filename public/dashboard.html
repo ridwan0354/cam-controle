@@ -513,8 +513,13 @@
   });
 
   socket.on('room-status', ({ cameras: camStatus }) => {
-    for (const [camId, { sender, receiver, name }] of Object.entries(camStatus)) {
+    for (const [camId, { sender, receiver, name, orientation }] of Object.entries(camStatus)) {
       updateCamStatus(camId, sender, receiver);
+      
+      const oriSelect = document.getElementById(`c-ori-${camId}`);
+      if (oriSelect && orientation) {
+        oriSelect.value = orientation;
+      }
     }
   });
 </script>

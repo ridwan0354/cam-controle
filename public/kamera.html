@@ -153,6 +153,7 @@
             facingMode, 
             width: { ideal: isPortrait ? res.height : res.width }, 
             height: { ideal: isPortrait ? res.width : res.height }, 
+            aspectRatio: { ideal: isPortrait ? (9/16) : (16/9) },
             frameRate: { ideal: 30 } 
           },
           audio: { echoCancellation: true, noiseSuppression: true },

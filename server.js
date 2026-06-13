@@ -58,7 +58,12 @@ function broadcastStatus(roomId) {
 
   const cameras = {};
   for (const [camId, cam] of Object.entries(room.cameras)) {
-    cameras[camId] = { name: cam.name, sender: !!cam.sender, receiver: !!cam.receiver };
+    cameras[camId] = { 
+      name: cam.name, 
+      sender: !!cam.sender, 
+      receiver: !!cam.receiver,
+      orientation: cam.orientation || 'landscape'
+    };
   }
 
   io.to(roomId).emit('room-status', { roomId, hasDashboard: !!room.dashboard, cameras });
@@ -84,7 +89,7 @@ io.on('connection', (socket) => {
 
     } else if (role === 'sender') {
       if (!room.cameras[camId]) {
-        room.cameras[camId] = { name: camName || camId, sender: null, receiver: null };
+        room.cameras[camId] = { name: camName || camId, sender: null, receiver: null, orientation: 'landscape' };
       }
       room.cameras[camId].sender = socket.id;
       if (camName) room.cameras[camId].name = camName;
@@ -98,7 +103,7 @@ io.on('connection', (socket) => {
 
     } else if (role === 'receiver') {
       if (!room.cameras[camId]) {
-        room.cameras[camId] = { name: camId, sender: null, receiver: null };
+        room.cameras[camId] = { name: camId, sender: null, receiver: null, orientation: 'landscape' };
       }
       room.cameras[camId].receiver = socket.id;
       console.log(`[${roomId}][${camId}] Receiver bergabung`);
@@ -135,6 +140,12 @@ io.on('connection', (socket) => {
   // Remote Control — dari Dashboard ke HP tertentu (camId)
   // ============================================================
   socket.on('remote-command', ({ roomId, camId, command, value }) => {
+    // Simpan perubahan orientasi ke state server
+    if (command === 'change-orientation' && rooms[roomId]?.cameras[camId]) {
+      rooms[roomId].cameras[camId].orientation = value;
+      broadcastStatus(roomId);
+    }
+
     const sender = rooms[roomId]?.cameras[camId]?.sender;
     if (sender) io.to(sender).emit('remote-command', { command, value });
     console.log(`[${roomId}][${camId}] Remote: ${command}${value ? ' → ' + value : ''}`);
