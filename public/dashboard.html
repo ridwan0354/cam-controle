@@ -346,8 +346,16 @@
     let avatarIcon = isRtmp ? '🛸' : '📱';
     let statusText = isRtmp ? 'Menunggu Stream' : 'Menunggu HP';
 
-    if (isRtmp) {
+      const combinedRtmp = `${rtmpServer}/${rtmpKey}`;
       linksHtml = `
+        <!-- Combined RTMP URL (Untuk DJI Mimo / DJI Fly) -->
+        <div class="link-item" style="border: 1px solid rgba(99,102,241,0.45); background: rgba(99,102,241,0.06)">
+          <div class="link-item-head">
+            <span class="link-badge lb-mobile" style="background:var(--purple);color:#fff">🛸 URL RTMP Gabungan (DJI Mimo / DJI Fly)</span>
+            <button class="btn btn-primary" style="padding:3px 8px;font-size:.62rem;box-shadow:none" onclick="copyText('${combinedRtmp}')">Salin</button>
+          </div>
+          <div class="link-url" style="font-weight:bold;color:var(--cyan);font-size:0.75rem">${combinedRtmp}</div>
+        </div>
         <!-- RTMP Server Link -->
         <div class="link-item">
           <div class="link-item-head">

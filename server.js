@@ -311,9 +311,11 @@ nms.run();
 
 // Event Listener ketika stream RTMP mulai dipublikasi (misal dari Drone atau OBS pengirim)
 nms.on('postPublish', (id, streamPath, args) => {
+  if (!streamPath) return;
   console.log(`[NMS] Stream terhubung: id=${id} path=${streamPath}`);
   const parts = streamPath.split('/');
   const streamKey = parts[parts.length - 1]; // format: ROOMID_CAMID
+  if (!streamKey) return;
   const underscoreIndex = streamKey.indexOf('_');
   if (underscoreIndex !== -1) {
     const roomId = streamKey.substring(0, underscoreIndex);
@@ -331,9 +333,11 @@ nms.on('postPublish', (id, streamPath, args) => {
 
 // Event Listener ketika stream RTMP selesai/terputus
 nms.on('donePublish', (id, streamPath, args) => {
+  if (!streamPath) return;
   console.log(`[NMS] Stream terputus: id=${id} path=${streamPath}`);
   const parts = streamPath.split('/');
   const streamKey = parts[parts.length - 1];
+  if (!streamKey) return;
   const underscoreIndex = streamKey.indexOf('_');
   if (underscoreIndex !== -1) {
     const roomId = streamKey.substring(0, underscoreIndex);
