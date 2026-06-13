@@ -346,6 +346,7 @@
     let avatarIcon = isRtmp ? '🛸' : '📱';
     let statusText = isRtmp ? 'Menunggu Stream' : 'Menunggu HP';
 
+    if (isRtmp) {
       const combinedRtmp = `${rtmpServer}/${rtmpKey}`;
       linksHtml = `
         <!-- Combined RTMP URL (Untuk DJI Mimo / DJI Fly) -->
