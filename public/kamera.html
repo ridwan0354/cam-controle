@@ -290,6 +290,24 @@
       setStatus('🗑️', 'Kamera Dihapus', 'Kamera ini telah dihapus dari Dashboard.', false);
     });
 
+    socket.on('room-not-found', () => {
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+      }
+      showPanel(true);
+      setStatus('⚠️', 'Room Tidak Ditemukan', 'Room ini sudah tidak aktif atau telah dihapus.', false);
+    });
+
+    socket.on('camera-not-found', () => {
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+      }
+      showPanel(true);
+      setStatus('⚠️', 'Kamera Tidak Terdaftar', 'Kamera ini tidak terdaftar atau telah dihapus dari Dashboard.', false);
+    });
+
     // ============================================================
     // REMOTE COMMANDS DARI DASHBOARD
     // ============================================================

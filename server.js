@@ -76,21 +76,43 @@ io.on('connection', (socket) => {
   // role: 'dashboard' | 'sender' | 'receiver'
   // camId: diperlukan untuk sender & receiver
   // camName: nama kamera (hanya dari sender)
-  socket.on('join-room', ({ roomId, role, camId, camName }) => {
+  socket.on('join-room', ({ roomId, role, camId, camName, cameras }) => {
     socket.join(roomId);
     socket.data = { roomId, role, camId };
 
-    if (!rooms[roomId]) rooms[roomId] = { dashboard: null, cameras: {} };
+    // Validasi Room: Hanya dashboard yang bisa membuat room baru
+    if (!rooms[roomId]) {
+      if (role === 'dashboard') {
+        rooms[roomId] = { dashboard: null, cameras: {} };
+      } else {
+        socket.emit('room-not-found', { roomId });
+        console.log(`[!] Percobaan gabung ke Room tidak terdaftar: ${roomId} oleh ${role}`);
+        return;
+      }
+    }
     const room = rooms[roomId];
 
     if (role === 'dashboard') {
       room.dashboard = socket.id;
       console.log(`[${roomId}] Dashboard bergabung`);
 
-    } else if (role === 'sender') {
-      if (!room.cameras[camId]) {
-        room.cameras[camId] = { name: camName || camId, sender: null, receiver: null, orientation: 'landscape' };
+      // Daftarkan ulang kamera yang dibawa oleh dashboard (misal hasil load localStorage)
+      if (cameras && Array.isArray(cameras)) {
+        cameras.forEach(id => {
+          if (!room.cameras[id]) {
+            room.cameras[id] = { name: id, sender: null, receiver: null, orientation: 'landscape' };
+          }
+        });
       }
+
+    } else if (role === 'sender') {
+      // Validasi Kamera: Kamera harus sudah terdaftar di dashboard terlebih dahulu
+      if (!room.cameras[camId]) {
+        socket.emit('camera-not-found', { camId });
+        console.log(`[!] Sender mencoba gabung ke kamera tidak terdaftar: ${camId} di Room ${roomId}`);
+        return;
+      }
+
       room.cameras[camId].sender = socket.id;
       if (camName) room.cameras[camId].name = camName;
       console.log(`[${roomId}][${camId}] Sender "${camName}" bergabung`);
@@ -102,9 +124,13 @@ io.on('connection', (socket) => {
       }
 
     } else if (role === 'receiver') {
+      // Validasi Kamera: Kamera harus sudah terdaftar di dashboard terlebih dahulu
       if (!room.cameras[camId]) {
-        room.cameras[camId] = { name: camId, sender: null, receiver: null, orientation: 'landscape' };
+        socket.emit('camera-not-found', { camId });
+        console.log(`[!] Receiver mencoba gabung ke kamera tidak terdaftar: ${camId} di Room ${roomId}`);
+        return;
       }
+
       room.cameras[camId].receiver = socket.id;
       console.log(`[${roomId}][${camId}] Receiver bergabung`);
 
@@ -137,6 +163,19 @@ io.on('connection', (socket) => {
   });
 
   // ============================================================
+  // Add Camera — Daftarkan kamera baru dari dashboard ke server
+  // ============================================================
+  socket.on('add-camera', ({ roomId, camId, name }) => {
+    const room = rooms[roomId];
+    if (!room) return;
+    if (!room.cameras[camId]) {
+      room.cameras[camId] = { name: name || camId, sender: null, receiver: null, orientation: 'landscape' };
+    }
+    broadcastStatus(roomId);
+    console.log(`[+] [${roomId}][${camId}] Kamera baru didaftarkan oleh dashboard`);
+  });
+
+  // ============================================================
   // Delete Camera — Hapus kamera dari server dan beritahu klien
   // ============================================================
   socket.on('delete-camera', ({ roomId, camId }) => {
@@ -151,6 +190,23 @@ io.on('connection', (socket) => {
     delete room.cameras[camId];
     broadcastStatus(roomId);
     console.log(`[-] [${roomId}][${camId}] Kamera dihapus oleh dashboard`);
+  });
+
+  // ============================================================
+  // Delete Room — Hapus seluruh room (untuk ganti room baru)
+  // ============================================================
+  socket.on('delete-room', ({ roomId }) => {
+    const room = rooms[roomId];
+    if (!room) return;
+
+    // Putuskan semua kamera di room ini
+    for (const [camId, cam] of Object.entries(room.cameras)) {
+      if (cam.sender) io.to(cam.sender).emit('camera-deleted', { camId });
+      if (cam.receiver) io.to(cam.receiver).emit('camera-deleted', { camId });
+    }
+
+    delete rooms[roomId];
+    console.log(`[-] Room ${roomId} dihapus total oleh dashboard`);
   });
 
   // ============================================================

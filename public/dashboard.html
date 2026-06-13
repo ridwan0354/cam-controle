@@ -262,6 +262,12 @@
   // ============================================================
   async function createRoom() {
     await detectBaseUrl();
+
+    // Hapus room lama di server jika ada sebelum buat baru
+    if (currentRoomId) {
+      socket.emit('delete-room', { roomId: currentRoomId });
+    }
+
     const id = genId(6);
     currentRoomId = id;
 
@@ -275,7 +281,7 @@
     document.getElementById('btn-add-cam').disabled = false;
     document.getElementById('cam-name-input').focus();
 
-    socket.emit('join-room', { roomId: id, role: 'dashboard' });
+    socket.emit('join-room', { roomId: id, role: 'dashboard', cameras: [] });
     log(`Room dibuat: ${id}`, 'success');
     showToast(`🔑 Room ${id} siap!`);
     clearCameraGrid();
@@ -292,6 +298,9 @@
     const camId = genId(4);
     cameras[camId] = { name, isMuted: false, isFlash: false, resolution: '720p', orientation: 'landscape' };
     localStorage.setItem('cam_controller_cameras', JSON.stringify(cameras));
+
+    // Daftarkan kamera baru ke server
+    socket.emit('add-camera', { roomId: currentRoomId, camId, name });
 
     const mobileLink = `${BASE_URL}/kamera.html?room=${currentRoomId}&cam=${camId}&name=${encodeURIComponent(name)}`;
     const obsLink    = `${BASE_URL}/obs.html?room=${currentRoomId}&cam=${camId}`;
@@ -560,7 +569,16 @@
       document.getElementById('btn-add-cam').disabled = false;
       document.getElementById('cam-name-input').focus();
 
-      socket.emit('join-room', { roomId: currentRoomId, role: 'dashboard' });
+      let cameraIds = [];
+      if (savedCamerasRaw) {
+        try {
+          const savedCams = JSON.parse(savedCamerasRaw);
+          cameraIds = Object.keys(savedCams);
+        } catch {}
+      }
+
+      // Gabung room dan daftarkan kembali semua kamera yang tersimpan ke server
+      socket.emit('join-room', { roomId: currentRoomId, role: 'dashboard', cameras: cameraIds });
       log(`Room dimuat kembali: ${currentRoomId}`, 'success');
 
       if (savedCamerasRaw) {

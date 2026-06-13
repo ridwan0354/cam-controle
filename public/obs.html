@@ -142,6 +142,28 @@
       document.getElementById('ov-sub').textContent = 'Kamera ini telah dihapus dari Dashboard.';
     });
 
+    socket.on('room-not-found', () => {
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+      document.getElementById('remote-video').srcObject = null;
+      document.getElementById('overlay').classList.remove('hidden');
+      document.getElementById('ov-title').textContent = '⚠️ Room Tidak Aktif';
+      document.getElementById('ov-sub').textContent = 'Room ini sudah tidak aktif atau telah dihapus.';
+    });
+
+    socket.on('camera-not-found', () => {
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+      document.getElementById('remote-video').srcObject = null;
+      document.getElementById('overlay').classList.remove('hidden');
+      document.getElementById('ov-title').textContent = '⚠️ Kamera Tidak Terdaftar';
+      document.getElementById('ov-sub').textContent = 'Kamera ini tidak terdaftar atau telah dihapus.';
+    });
+
     // Room status: update nama kamera dan orientasi
     socket.on('room-status', ({ cameras }) => {
       const cam = cameras[CAM_ID];
