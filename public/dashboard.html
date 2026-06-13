@@ -651,30 +651,42 @@
   let isMuted = false;
   let isFlashOn = false;
 
-  // BASE_URL untuk akses dari PC (localhost) — untuk link OBS
+  // BASE_URL saat ini (dari browser)
   const BASE_URL_LOCAL = window.location.origin;
 
-  // BASE_URL untuk akses dari HP (IP jaringan lokal) — untuk QR Code & link HP
-  // Akan di-fetch dari server saat halaman dimuat
+  // BASE_URL untuk QR Code & link HP.
+  // LOGIKA OTOMATIS:
+  // - Jika diakses via HTTPS domain (VPS) → pakai domain agar HP bisa akses via internet
+  // - Jika diakses via localhost/HTTP → fetch IP LAN agar HP di WiFi yang sama bisa akses
   let BASE_URL_LAN = BASE_URL_LOCAL;
 
   // ============================================================
-  // FETCH IP JARINGAN DARI SERVER
-  // Endpoint /api/info mengembalikan IP LAN mesin ini.
-  // Penting agar QR Code berisi IP yang bisa diakses HP di WiFi yang sama.
+  // TENTUKAN BASE URL YANG TEPAT UNTUK QR CODE
   // ============================================================
   async function fetchServerInfo() {
-    try {
-      const res = await fetch('/api/info');
-      const data = await res.json();
-      if (data.localIP && data.localIP !== 'localhost') {
-        BASE_URL_LAN = `http://${data.localIP}:${data.port}`;
-        log(`IP Jaringan Lokal terdeteksi: ${data.localIP}`, 'info');
-      } else {
-        log('IP LAN tidak ditemukan, menggunakan localhost. Pastikan HP & PC satu WiFi.', 'warn');
+    const hostname = window.location.hostname;
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+    const isHttps = window.location.protocol === 'https:';
+
+    if (isHttps && !isLocalhost) {
+      // ✅ MODE VPS/DOMAIN: Dashboard dibuka via HTTPS domain
+      // Gunakan domain yang sama untuk QR Code & link HP
+      // HP akan akses via internet dengan HTTPS → getUserMedia akan bekerja!
+      BASE_URL_LAN = window.location.origin;
+      log(`Mode VPS: Link HP menggunakan domain ${BASE_URL_LAN}`, 'success');
+    } else {
+      // ✅ MODE LOKAL: Dashboard dibuka via localhost
+      // Fetch IP LAN agar HP di WiFi yang sama bisa akses
+      try {
+        const res = await fetch('/api/info');
+        const data = await res.json();
+        if (data.localIP && data.localIP !== 'localhost') {
+          BASE_URL_LAN = `http://${data.localIP}:${data.port}`;
+          log(`Mode Lokal: IP LAN terdeteksi ${data.localIP}`, 'info');
+        }
+      } catch (e) {
+        log('Gagal fetch IP LAN, pakai localhost.', 'warn');
       }
-    } catch (e) {
-      log('Gagal fetch info server, menggunakan fallback localhost.', 'warn');
     }
   }
 
