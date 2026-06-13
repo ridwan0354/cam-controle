@@ -12,6 +12,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const os = require('os');
+const NodeMediaServer = require('node-media-server');
 
 const app = express();
 const server = http.createServer(app);
@@ -38,7 +39,12 @@ function getLocalIP() {
 const LOCAL_IP = getLocalIP();
 const PORT = process.env.PORT || 3000;
 
-app.get('/api/info', (req, res) => res.json({ localIP: LOCAL_IP, port: PORT }));
+app.get('/api/info', (req, res) => res.json({ 
+  localIP: LOCAL_IP, 
+  port: PORT,
+  rtmpPort: 1935,
+  flvPort: 8000
+}));
 
 // ============================================================
 // Manajemen Room Multi-Kamera
@@ -62,7 +68,8 @@ function broadcastStatus(roomId) {
       name: cam.name, 
       sender: !!cam.sender, 
       receiver: !!cam.receiver,
-      orientation: cam.orientation || 'landscape'
+      orientation: cam.orientation || 'landscape',
+      type: cam.type || 'webrtc'
     };
   }
 
@@ -102,15 +109,16 @@ io.on('connection', (socket) => {
           if (typeof item === 'object' && item !== null && item.id) {
             const id = item.id;
             if (!room.cameras[id]) {
-              room.cameras[id] = { name: item.name || id, sender: null, receiver: null, orientation: item.orientation || 'landscape' };
+              room.cameras[id] = { name: item.name || id, sender: null, receiver: null, orientation: item.orientation || 'landscape', type: item.type || 'webrtc' };
             } else {
               if (item.name) room.cameras[id].name = item.name;
               if (item.orientation) room.cameras[id].orientation = item.orientation;
+              if (item.type) room.cameras[id].type = item.type;
             }
           } else if (typeof item === 'string') {
             const id = item;
             if (!room.cameras[id]) {
-              room.cameras[id] = { name: id, sender: null, receiver: null, orientation: 'landscape' };
+              room.cameras[id] = { name: id, sender: null, receiver: null, orientation: 'landscape', type: 'webrtc' };
             }
           }
         });
@@ -177,11 +185,17 @@ io.on('connection', (socket) => {
   // ============================================================
   // Add Camera — Daftarkan kamera baru dari dashboard ke server
   // ============================================================
-  socket.on('add-camera', ({ roomId, camId, name }) => {
+  socket.on('add-camera', ({ roomId, camId, name, type }) => {
     const room = rooms[roomId];
     if (!room) return;
     if (!room.cameras[camId]) {
-      room.cameras[camId] = { name: name || camId, sender: null, receiver: null, orientation: 'landscape' };
+      room.cameras[camId] = { 
+        name: name || camId, 
+        sender: null, 
+        receiver: null, 
+        orientation: 'landscape',
+        type: type || 'webrtc'
+      };
     }
     broadcastStatus(roomId);
     console.log(`[+] [${roomId}][${camId}] Kamera baru didaftarkan oleh dashboard`);
@@ -273,6 +287,66 @@ io.on('connection', (socket) => {
 });
 
 // ============================================================
+// Node-Media-Server (RTMP Ingestion Server)
+// ============================================================
+const nmsConfig = {
+  rtmp: {
+    port: 1935,
+    chunk_size: 60000,
+    gop_cache: true,
+    ping: 30,
+    ping_timeout: 60
+  },
+  http: {
+    port: 8000,
+    allow_origin: '*'
+  },
+  logType: 1 // Hanya error/warning agar log server bersih
+};
+
+const nms = new NodeMediaServer(nmsConfig);
+nms.run();
+
+// Event Listener ketika stream RTMP mulai dipublikasi (misal dari Drone atau OBS pengirim)
+nms.on('postPublish', (id, streamPath, args) => {
+  console.log(`[NMS] Stream terhubung: id=${id} path=${streamPath}`);
+  const parts = streamPath.split('/');
+  const streamKey = parts[parts.length - 1]; // format: ROOMID_CAMID
+  const underscoreIndex = streamKey.indexOf('_');
+  if (underscoreIndex !== -1) {
+    const roomId = streamKey.substring(0, underscoreIndex);
+    const camId = streamKey.substring(underscoreIndex + 1);
+
+    const room = rooms[roomId];
+    if (room && room.cameras[camId]) {
+      room.cameras[camId].sender = 'rtmp_' + id;
+      room.cameras[camId].orientation = 'landscape'; // RTMP default landscape
+      broadcastStatus(roomId);
+      console.log(`[${roomId}][${camId}] Aliran stream RTMP Aktif`);
+    }
+  }
+});
+
+// Event Listener ketika stream RTMP selesai/terputus
+nms.on('donePublish', (id, streamPath, args) => {
+  console.log(`[NMS] Stream terputus: id=${id} path=${streamPath}`);
+  const parts = streamPath.split('/');
+  const streamKey = parts[parts.length - 1];
+  const underscoreIndex = streamKey.indexOf('_');
+  if (underscoreIndex !== -1) {
+    const roomId = streamKey.substring(0, underscoreIndex);
+    const camId = streamKey.substring(underscoreIndex + 1);
+
+    const room = rooms[roomId];
+    if (room && room.cameras[camId]) {
+      room.cameras[camId].sender = null;
+      broadcastStatus(roomId);
+      console.log(`[${roomId}][${camId}] Aliran stream RTMP Berhenti`);
+    }
+  }
+});
+
+// ============================================================
 // Mulai Server
 // ============================================================
 server.listen(PORT, '0.0.0.0', () => {
@@ -281,5 +355,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('============================================================');
   console.log(`  🖥️  Dashboard (Lokal)   : http://localhost:${PORT}/dashboard.html`);
   console.log(`  🌐 Dashboard (Jaringan) : http://${LOCAL_IP}:${PORT}/dashboard.html`);
+  console.log(`  🛸 Server RTMP          : rtmp://${LOCAL_IP}:1935/live`);
+  console.log(`  📺 WebSocket-FLV Player : ws://${LOCAL_IP}:8000/live/...`);
   console.log('============================================================\n');
 });

@@ -173,8 +173,15 @@
   <!-- ADD CAMERA -->
   <div class="add-cam-section">
     <span style="font-size:.85rem;font-weight:600;color:var(--text2);white-space:nowrap">📱 Nama Kamera:</span>
-    <input type="text" class="cam-name-input" id="cam-name-input" placeholder='Contoh: iPhone 15, Samsung S24, GoPro...' maxlength="30" />
-    <button class="btn-add" id="btn-add-cam" onclick="addCamera()" disabled>➕ Tambah Kamera</button>
+    <input type="text" class="cam-name-input" id="cam-name-input" placeholder='Contoh: iPhone 15, DJI Drone, Laptop B...' maxlength="30" />
+    
+    <span style="font-size:.85rem;font-weight:600;color:var(--text2);white-space:nowrap;margin-left:10px">🔧 Tipe:</span>
+    <select id="cam-type-select" class="res-select" style="width:180px;margin-left:5px" disabled>
+      <option value="webrtc">📱 HP (WebRTC)</option>
+      <option value="rtmp">🛸 Drone / OBS (RTMP)</option>
+    </select>
+    
+    <button class="btn-add" id="btn-add-cam" onclick="addCamera()" disabled style="margin-left:10px">➕ Tambah Kamera</button>
   </div>
 
   <!-- CAMERAS GRID -->
@@ -279,6 +286,7 @@
     document.getElementById('room-id').textContent = id;
     document.getElementById('btn-copy-room').disabled = false;
     document.getElementById('btn-add-cam').disabled = false;
+    document.getElementById('cam-type-select').disabled = false;
     document.getElementById('cam-name-input').focus();
 
     socket.emit('join-room', { roomId: id, role: 'dashboard', cameras: [] });
@@ -294,57 +302,90 @@
     if (!currentRoomId) return showToast('⚠️ Buat room dulu!');
     const nameInput = document.getElementById('cam-name-input');
     const name = nameInput.value.trim() || `Kamera ${Object.keys(cameras).length + 1}`;
+    const typeSelect = document.getElementById('cam-type-select');
+    const type = typeSelect ? typeSelect.value : 'webrtc';
 
     const camId = genId(4);
-    cameras[camId] = { name, isMuted: false, isFlash: false, resolution: '720p', orientation: 'landscape' };
+    cameras[camId] = { name, isMuted: false, isFlash: false, resolution: '720p', orientation: 'landscape', type };
     localStorage.setItem('cam_controller_cameras', JSON.stringify(cameras));
 
     // Daftarkan kamera baru ke server
-    socket.emit('add-camera', { roomId: currentRoomId, camId, name });
+    socket.emit('add-camera', { roomId: currentRoomId, camId, name, type });
 
     const mobileLink = `${BASE_URL}/kamera.html?room=${currentRoomId}&cam=${camId}&name=${encodeURIComponent(name)}`;
     const obsLink    = `${BASE_URL}/obs.html?room=${currentRoomId}&cam=${camId}`;
 
-    renderCameraCard(camId, name, mobileLink, obsLink);
+    renderCameraCard(camId, name, mobileLink, obsLink, type);
     updateCamCount();
 
     nameInput.value = '';
     nameInput.focus();
-    log(`Kamera ditambah: "${name}" (${camId})`, 'info');
+    log(`Kamera ditambah: "${name}" (${camId}) [Tipe: ${type}]`, 'info');
     showToast(`📱 Kamera "${name}" ditambahkan!`);
   }
 
   // ============================================================
   // RENDER CAMERA CARD
   // ============================================================
-  function renderCameraCard(camId, name, mobileLink, obsLink) {
+  function renderCameraCard(camId, name, mobileLink, obsLink, type = 'webrtc') {
     // Hapus empty state jika ada
     const empty = document.querySelector('.empty-state');
     if (empty) empty.remove();
 
+    const isRtmp = type === 'rtmp';
+    const ipHost = BASE_URL.replace('http://', '').replace('https://', '').split(':')[0];
+    const rtmpServer = `rtmp://${ipHost}:1935/live`;
+    const rtmpKey = `${currentRoomId}_${camId}`;
+
     const card = document.createElement('div');
     card.className = 'cam-card';
     card.id = `cam-${camId}`;
-    card.innerHTML = `
-      <!-- HEAD -->
-      <div class="cam-card-head">
-        <div class="cam-info">
-          <div class="cam-avatar">📱</div>
-          <div>
-            <div class="cam-name-text">${name}</div>
-            <div class="cam-id-text">ID: ${camId}</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div class="cam-status offline" id="st-${camId}">
-            <div class="sdot"></div> <span id="st-txt-${camId}">Menunggu HP</span>
-          </div>
-          <button class="btn-remove" onclick="removeCamera('${camId}')" title="Hapus kamera">✕</button>
-        </div>
-      </div>
+    
+    let linksHtml = '';
+    let controlsHtml = '';
+    let avatarIcon = isRtmp ? '🛸' : '📱';
+    let statusText = isRtmp ? 'Menunggu Stream' : 'Menunggu HP';
 
-      <!-- LINKS -->
-      <div class="cam-links">
+    if (isRtmp) {
+      linksHtml = `
+        <!-- RTMP Server Link -->
+        <div class="link-item">
+          <div class="link-item-head">
+            <span class="link-badge lb-mobile">🛸 Server RTMP</span>
+            <button class="btn btn-secondary" style="padding:3px 8px;font-size:.62rem" onclick="copyText('${rtmpServer}')">Salin</button>
+          </div>
+          <div class="link-url">${rtmpServer}</div>
+        </div>
+        <!-- Stream Key -->
+        <div class="link-item">
+          <div class="link-item-head">
+            <span class="link-badge lb-mobile">🔑 Stream Key</span>
+            <button class="btn btn-secondary" style="padding:3px 8px;font-size:.62rem" onclick="copyText('${rtmpKey}')">Salin</button>
+          </div>
+          <div class="link-url" style="font-weight:bold;color:var(--purple);font-size:0.8rem">${rtmpKey}</div>
+        </div>
+        <!-- OBS Link -->
+        <div class="link-item">
+          <div class="link-item-head">
+            <span class="link-badge lb-obs">🎬 OBS Browser Source</span>
+            <button class="btn btn-secondary" style="padding:3px 8px;font-size:.62rem" onclick="copyText('${obsLink}')">Salin</button>
+          </div>
+          <div class="link-url">${obsLink}</div>
+        </div>
+      `;
+      
+      controlsHtml = `
+        <div class="cam-controls">
+          <div class="ctrl-title">ℹ️ Panduan Koneksi RTMP</div>
+          <div style="font-size: 0.72rem; color: var(--text2); line-height: 1.6; padding: 12px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r)">
+            1. Buka opsi Live Stream RTMP di DJI Drone atau tab Settings > Stream di OBS Pengirim.<br>
+            2. Masukkan **Server RTMP** dan **Stream Key** di atas.<br>
+            3. Mulai streaming pada perangkat. Status kartu ini akan otomatis berubah menjadi <strong>🔴 LIVE</strong>.
+          </div>
+        </div>
+      `;
+    } else {
+      linksHtml = `
         <!-- Mobile Link -->
         <div class="link-item">
           <div class="link-item-head">
@@ -362,51 +403,81 @@
           </div>
           <div class="link-url">${obsLink}</div>
         </div>
+      `;
+      
+      controlsHtml = `
+        <!-- REMOTE CONTROLS -->
+        <div class="cam-controls">
+          <div class="ctrl-title">🎮 Remote Control</div>
+          <div class="ctrl-grid">
+            <button class="ctrl-btn" id="c-flip-${camId}" onclick="sendCmd('${camId}','flip-camera')" disabled>
+              <span class="icon">🔄</span>Flip
+            </button>
+            <button class="ctrl-btn" id="c-mic-${camId}" onclick="toggleMic('${camId}')" disabled>
+              <span class="icon" id="mic-ic-${camId}">🎤</span><span id="mic-lb-${camId}">Mute</span>
+            </button>
+            <button class="ctrl-btn" id="c-flash-${camId}" onclick="toggleFlash('${camId}')" disabled>
+              <span class="icon" id="flash-ic-${camId}">🔦</span><span id="flash-lb-${camId}">Flash</span>
+            </button>
+            <button class="ctrl-btn" id="c-shot-${camId}" onclick="sendCmd('${camId}','screenshot')" disabled>
+              <span class="icon">📸</span>Shot
+            </button>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <select class="res-select" id="c-res-${camId}" onchange="sendCmd('${camId}','change-resolution',this.value)" disabled style="flex:1">
+              <option value="4k">4K (3840×2160)</option>
+              <option value="1080p">Full HD (1920×1080)</option>
+              <option value="720p" selected>HD (1280×720)</option>
+              <option value="480p">SD (854×480)</option>
+              <option value="360p">Low (640×360)</option>
+            </select>
+            <select class="res-select" id="c-ori-${camId}" onchange="sendCmd('${camId}','change-orientation',this.value)" disabled style="flex:1">
+              <option value="landscape" selected>Landscape (16:9)</option>
+              <option value="portrait">Portrait (9:16)</option>
+            </select>
+          </div>
+        </div>
+      `;
+    }
+
+    card.innerHTML = `
+      <!-- HEAD -->
+      <div class="cam-card-head">
+        <div class="cam-info">
+          <div class="cam-avatar">${avatarIcon}</div>
+          <div>
+            <div class="cam-name-text">${name}</div>
+            <div class="cam-id-text">ID: ${camId} • Tipe: ${isRtmp ? 'RTMP' : 'WebRTC'}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="cam-status offline" id="st-${camId}">
+            <div class="sdot"></div> <span id="st-txt-${camId}">${statusText}</span>
+          </div>
+          <button class="btn-remove" onclick="removeCamera('${camId}')" title="Hapus kamera">✕</button>
+        </div>
       </div>
 
-      <!-- REMOTE CONTROLS -->
-      <div class="cam-controls">
-        <div class="ctrl-title">🎮 Remote Control</div>
-        <div class="ctrl-grid">
-          <button class="ctrl-btn" id="c-flip-${camId}" onclick="sendCmd('${camId}','flip-camera')" disabled>
-            <span class="icon">🔄</span>Flip
-          </button>
-          <button class="ctrl-btn" id="c-mic-${camId}" onclick="toggleMic('${camId}')" disabled>
-            <span class="icon" id="mic-ic-${camId}">🎤</span><span id="mic-lb-${camId}">Mute</span>
-          </button>
-          <button class="ctrl-btn" id="c-flash-${camId}" onclick="toggleFlash('${camId}')" disabled>
-            <span class="icon" id="flash-ic-${camId}">🔦</span><span id="flash-lb-${camId}">Flash</span>
-          </button>
-          <button class="ctrl-btn" id="c-shot-${camId}" onclick="sendCmd('${camId}','screenshot')" disabled>
-            <span class="icon">📸</span>Shot
-          </button>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <select class="res-select" id="c-res-${camId}" onchange="sendCmd('${camId}','change-resolution',this.value)" disabled style="flex:1">
-            <option value="4k">4K (3840×2160)</option>
-            <option value="1080p">Full HD (1920×1080)</option>
-            <option value="720p" selected>HD (1280×720)</option>
-            <option value="480p">SD (854×480)</option>
-            <option value="360p">Low (640×360)</option>
-          </select>
-          <select class="res-select" id="c-ori-${camId}" onchange="sendCmd('${camId}','change-orientation',this.value)" disabled style="flex:1">
-            <option value="landscape" selected>Landscape (16:9)</option>
-            <option value="portrait">Portrait (9:16)</option>
-          </select>
-        </div>
+      <!-- LINKS -->
+      <div class="cam-links">
+        ${linksHtml}
       </div>
+
+      ${controlsHtml}
     `;
 
     document.getElementById('cameras-grid').appendChild(card);
 
-    // Generate QR
-    setTimeout(() => {
-      new QRCode(document.getElementById(`qr-${camId}`), {
-        text: mobileLink, width: 150, height: 150,
-        colorDark: '#000', colorLight: '#fff',
-        correctLevel: QRCode.CorrectLevel.M,
-      });
-    }, 80);
+    // Generate QR only if WebRTC
+    if (!isRtmp) {
+      setTimeout(() => {
+        new QRCode(document.getElementById(`qr-${camId}`), {
+          text: mobileLink, width: 150, height: 150,
+          colorDark: '#000', colorLight: '#fff',
+          correctLevel: QRCode.CorrectLevel.M,
+        });
+      }, 80);
+    }
   }
 
   // ============================================================
@@ -462,17 +533,19 @@
     const card = document.getElementById(`cam-${camId}`);
     if (!el || !txt) return;
 
+    const isRtmp = cameras[camId] && cameras[camId].type === 'rtmp';
+
     if (sender && receiver) {
       el.className = 'cam-status live';
       txt.textContent = '🔴 LIVE';
       card?.classList.add('live');
     } else if (sender) {
       el.className = 'cam-status sender-only';
-      txt.textContent = '📱 HP Terhubung';
+      txt.textContent = isRtmp ? '🟢 Stream Aktif' : '📱 HP Terhubung';
       card?.classList.remove('live');
     } else {
       el.className = 'cam-status offline';
-      txt.textContent = 'Menunggu HP';
+      txt.textContent = isRtmp ? 'Menunggu Stream' : 'Menunggu HP';
       card?.classList.remove('live');
     }
 

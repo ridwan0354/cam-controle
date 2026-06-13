@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OBS Source — Cam Controller</title>
   <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mpegts/1.7.3/mpegts.min.js"></script>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{width:100%;height:100%;background:#000;overflow:hidden}
@@ -46,6 +47,8 @@
 
     const socket = io();
     let pc = null;
+    let flvPlayer = null;
+    let isFlvPlaying = false;
 
     const STUN_SERVERS = {
       iceServers: [
@@ -74,6 +77,12 @@
     // ============================================================
     socket.on('webrtc-offer', async ({ camId, offer }) => {
       if (camId !== CAM_ID) return;
+
+      if (flvPlayer) {
+        flvPlayer.destroy();
+        flvPlayer = null;
+        isFlvPlaying = false;
+      }
 
       if (pc) { pc.close(); pc = null; }
 
@@ -169,17 +178,87 @@
       const cam = cameras[CAM_ID];
       if (cam) {
         if (cam.name) {
-          document.getElementById('cam-tag').textContent = `📱 ${cam.name}`;
+          const avatar = cam.type === 'rtmp' ? '🛸' : '📱';
+          document.getElementById('cam-tag').textContent = `${avatar} ${cam.name}`;
           document.title = `OBS: ${cam.name}`;
           if (!cam.sender) {
             document.getElementById('ov-title').textContent = `Menunggu ${cam.name}...`;
+            if (cam.type === 'rtmp') {
+              document.getElementById('ov-sub').textContent = 'Menunggu aliran stream RTMP...';
+            } else {
+              document.getElementById('ov-sub').textContent = 'Pastikan HP sudah membuka link kamera';
+            }
           }
         }
         if (cam.orientation) {
           applyOrientationStyle(cam.orientation);
         }
+        
+        // Putar RTMP stream secara otomatis jika tipenya rtmp
+        if (cam.type === 'rtmp') {
+          handleRtmpPlayback(cam.sender);
+        }
       }
     });
+
+    function handleRtmpPlayback(isLive) {
+      const video = document.getElementById('remote-video');
+      
+      if (!isLive) {
+        if (flvPlayer) {
+          flvPlayer.destroy();
+          flvPlayer = null;
+        }
+        isFlvPlaying = false;
+        document.getElementById('overlay').classList.remove('hidden');
+        document.getElementById('ov-title').textContent = '📡 Kamera Offline';
+        document.getElementById('ov-sub').textContent = 'Menunggu aliran stream RTMP...';
+        return;
+      }
+      
+      if (isFlvPlaying) return;
+      
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = location.hostname;
+      const flvPort = 8000;
+      const streamKey = `${ROOM_ID}_${CAM_ID}`;
+      const flvUrl = `${protocol}//${wsHost}:${flvPort}/live/${streamKey}.flv`;
+      
+      console.log('[RTMP] Connecting to:', flvUrl);
+      
+      if (mpegts.getFeatureList().mseLivePlayback) {
+        document.getElementById('overlay').classList.add('hidden');
+        document.getElementById('cam-tag').classList.add('show');
+        
+        flvPlayer = mpegts.createPlayer({
+          type: 'flv',
+          isLive: true,
+          url: flvUrl
+        }, {
+          enableStashBuffer: false,
+          liveBufferLatencyChasing: true
+        });
+        
+        flvPlayer.attachMediaElement(video);
+        flvPlayer.load();
+        flvPlayer.play()
+          .then(() => {
+            isFlvPlaying = true;
+            console.log('[RTMP] Playing...');
+          })
+          .catch(e => console.warn('[RTMP] Play error:', e));
+          
+        flvPlayer.on(mpegts.Events.ERROR, (type, detail, info) => {
+          console.warn('[RTMP] Player error, retrying in 3s...', type, detail, info);
+          setTimeout(() => {
+            if (isLive && !isFlvPlaying) {
+              handleRtmpPlayback(false);
+              handleRtmpPlayback(true);
+            }
+          }, 3000);
+        });
+      }
+    }
 
     function applyOrientationStyle(orientation) {
       const video = document.getElementById('remote-video');
