@@ -276,6 +276,20 @@
       setStatus('📡', 'OBS Terputus', 'Menunggu OBS terhubung kembali...', true);
     });
 
+    socket.on('camera-deleted', ({ camId }) => {
+      if (camId !== CAM_ID) return;
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+      }
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+      showPanel(true);
+      setStatus('🗑️', 'Kamera Dihapus', 'Kamera ini telah dihapus dari Dashboard.', false);
+    });
+
     // ============================================================
     // REMOTE COMMANDS DARI DASHBOARD
     // ============================================================

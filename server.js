@@ -137,6 +137,23 @@ io.on('connection', (socket) => {
   });
 
   // ============================================================
+  // Delete Camera — Hapus kamera dari server dan beritahu klien
+  // ============================================================
+  socket.on('delete-camera', ({ roomId, camId }) => {
+    const room = rooms[roomId];
+    if (!room || !room.cameras[camId]) return;
+
+    const { sender, receiver } = room.cameras[camId];
+
+    if (sender) io.to(sender).emit('camera-deleted', { camId });
+    if (receiver) io.to(receiver).emit('camera-deleted', { camId });
+
+    delete room.cameras[camId];
+    broadcastStatus(roomId);
+    console.log(`[-] [${roomId}][${camId}] Kamera dihapus oleh dashboard`);
+  });
+
+  // ============================================================
   // Remote Control — dari Dashboard ke HP tertentu (camId)
   // ============================================================
   socket.on('remote-command', ({ roomId, camId, command, value }) => {

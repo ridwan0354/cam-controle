@@ -130,6 +130,18 @@
       document.getElementById('ov-sub').textContent = `Cam ${CAM_ID} terputus. Menunggu reconnect...`;
     });
 
+    socket.on('camera-deleted', ({ camId }) => {
+      if (camId !== CAM_ID) return;
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+      document.getElementById('remote-video').srcObject = null;
+      document.getElementById('overlay').classList.remove('hidden');
+      document.getElementById('ov-title').textContent = '🗑️ Kamera Dihapus';
+      document.getElementById('ov-sub').textContent = 'Kamera ini telah dihapus dari Dashboard.';
+    });
+
     // Room status: update nama kamera dan orientasi
     socket.on('room-status', ({ cameras }) => {
       const cam = cameras[CAM_ID];

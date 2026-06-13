@@ -265,6 +265,11 @@
     const id = genId(6);
     currentRoomId = id;
 
+    // Reset local storage untuk room baru
+    localStorage.setItem('cam_controller_room_id', id);
+    localStorage.removeItem('cam_controller_cameras');
+    cameras_obj_keys_clear();
+
     document.getElementById('room-id').textContent = id;
     document.getElementById('btn-copy-room').disabled = false;
     document.getElementById('btn-add-cam').disabled = false;
@@ -285,7 +290,8 @@
     const name = nameInput.value.trim() || `Kamera ${Object.keys(cameras).length + 1}`;
 
     const camId = genId(4);
-    cameras[camId] = { name, isMuted: false, isFlash: false };
+    cameras[camId] = { name, isMuted: false, isFlash: false, resolution: '720p', orientation: 'landscape' };
+    localStorage.setItem('cam_controller_cameras', JSON.stringify(cameras));
 
     const mobileLink = `${BASE_URL}/kamera.html?room=${currentRoomId}&cam=${camId}&name=${encodeURIComponent(name)}`;
     const obsLink    = `${BASE_URL}/obs.html?room=${currentRoomId}&cam=${camId}`;
@@ -398,10 +404,16 @@
   // REMOVE CAMERA
   // ============================================================
   function removeCamera(camId) {
+    if (currentRoomId) {
+      socket.emit('delete-camera', { roomId: currentRoomId, camId });
+    }
+
     const card = document.getElementById(`cam-${camId}`);
     if (card) card.remove();
     delete cameras[camId];
     updateCamCount();
+
+    localStorage.setItem('cam_controller_cameras', JSON.stringify(cameras));
 
     if (Object.keys(cameras).length === 0) {
       document.getElementById('cameras-grid').innerHTML = `
@@ -470,6 +482,16 @@
     if (!currentRoomId) return;
     socket.emit('remote-command', { roomId: currentRoomId, camId, command, value });
     log(`[${camId}] Perintah: ${command}${value ? ' → ' + value : ''}`, 'info');
+
+    if (cameras[camId]) {
+      if (command === 'change-resolution') {
+        cameras[camId].resolution = value;
+        localStorage.setItem('cam_controller_cameras', JSON.stringify(cameras));
+      } else if (command === 'change-orientation') {
+        cameras[camId].orientation = value;
+        localStorage.setItem('cam_controller_cameras', JSON.stringify(cameras));
+      }
+    }
   }
 
   function toggleMic(camId) {
@@ -480,6 +502,7 @@
     document.getElementById(`mic-lb-${camId}`).textContent = muted ? 'Unmute' : 'Mute';
     document.getElementById(`c-mic-${camId}`)?.classList.toggle('on', muted);
     sendCmd(camId, 'toggle-mic');
+    localStorage.setItem('cam_controller_cameras', JSON.stringify(cameras));
   }
 
   function toggleFlash(camId) {
@@ -490,6 +513,7 @@
     document.getElementById(`flash-lb-${camId}`).textContent = on ? 'Flash Off' : 'Flash';
     document.getElementById(`c-flash-${camId}`)?.classList.toggle('on', on);
     sendCmd(camId, 'toggle-flash');
+    localStorage.setItem('cam_controller_cameras', JSON.stringify(cameras));
   }
 
   // Enter key submit camera name
@@ -519,6 +543,60 @@
       const oriSelect = document.getElementById(`c-ori-${camId}`);
       if (oriSelect && orientation) {
         oriSelect.value = orientation;
+      }
+    }
+  });
+
+  // Load room dan kamera saat reload
+  window.addEventListener('DOMContentLoaded', async () => {
+    await detectBaseUrl();
+    const savedRoomId = localStorage.getItem('cam_controller_room_id');
+    const savedCamerasRaw = localStorage.getItem('cam_controller_cameras');
+
+    if (savedRoomId) {
+      currentRoomId = savedRoomId;
+      document.getElementById('room-id').textContent = currentRoomId;
+      document.getElementById('btn-copy-room').disabled = false;
+      document.getElementById('btn-add-cam').disabled = false;
+      document.getElementById('cam-name-input').focus();
+
+      socket.emit('join-room', { roomId: currentRoomId, role: 'dashboard' });
+      log(`Room dimuat kembali: ${currentRoomId}`, 'success');
+
+      if (savedCamerasRaw) {
+        try {
+          const savedCams = JSON.parse(savedCamerasRaw);
+          
+          const empty = document.querySelector('.empty-state');
+          if (empty) empty.remove();
+
+          for (const [camId, cam] of Object.entries(savedCams)) {
+            cameras[camId] = cam;
+            const mobileLink = `${BASE_URL}/kamera.html?room=${currentRoomId}&cam=${camId}&name=${encodeURIComponent(cam.name)}`;
+            const obsLink    = `${BASE_URL}/obs.html?room=${currentRoomId}&cam=${camId}`;
+            renderCameraCard(camId, cam.name, mobileLink, obsLink);
+            
+            // Sync status kontrol tersimpan
+            const resSelect = document.getElementById(`c-res-${camId}`);
+            if (resSelect && cam.resolution) resSelect.value = cam.resolution;
+            const oriSelect = document.getElementById(`c-ori-${camId}`);
+            if (oriSelect && cam.orientation) oriSelect.value = cam.orientation;
+            
+            if (cam.isMuted) {
+              document.getElementById(`mic-ic-${camId}`).textContent = '🔇';
+              document.getElementById(`mic-lb-${camId}`).textContent = 'Unmute';
+              document.getElementById(`c-mic-${camId}`)?.classList.add('on');
+            }
+            if (cam.isFlash) {
+              document.getElementById(`flash-ic-${camId}`).textContent = '💡';
+              document.getElementById(`flash-lb-${camId}`).textContent = 'Flash Off';
+              document.getElementById(`c-flash-${camId}`)?.classList.add('on');
+            }
+          }
+          updateCamCount();
+        } catch (e) {
+          console.error('Gagal memuat list kamera:', e);
+        }
       }
     }
   });
