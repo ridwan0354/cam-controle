@@ -12,7 +12,7 @@
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
     #video-container{position:fixed;inset:0;background:#000}
-    video{width:100%;height:100%;object-fit:cover;display:block}
+    video{width:100%;height:100%;object-fit:contain;display:block}
 
     /* HUD overlay */
     .hud{position:fixed;top:0;left:0;right:0;padding:16px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(to bottom,rgba(0,0,0,.7),transparent);z-index:10;pointer-events:none}
@@ -77,20 +77,47 @@
     .cam-panel-row:last-child{margin-bottom:0}
     .cam-panel-label{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,.35);margin-bottom:5px}
 
-    /* Flip Buttons */
-    .cam-flip-btn{flex:1;padding:9px 6px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;font-size:.75rem;font-weight:600;cursor:pointer;transition:.2s;font-family:'Inter',sans-serif;-webkit-tap-highlight-color:transparent;display:flex;align-items:center;justify-content:center;gap:5px}
-    .cam-flip-btn:active{transform:scale(.94)}
-    .cam-flip-btn.active{background:rgba(99,102,241,.25);border-color:rgba(99,102,241,.6);color:var(--cyan)}
+    /* Camera options list and buttons */
+    #camera-options-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 160px;
+      overflow-y: auto;
+      margin-bottom: 8px;
+    }
+    .cam-select-btn {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #fff;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-align: left;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .cam-select-btn:active {
+      transform: scale(0.98);
+    }
+    .cam-select-btn.active {
+      background: rgba(99, 102, 241, 0.25);
+      border-color: rgba(99, 102, 241, 0.6);
+      color: var(--cyan);
+    }
 
     /* Lens Preset Buttons */
     #lens-preset-row{display:flex;gap:6px;flex-wrap:wrap}
-    .lens-btn{padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.7);font-size:.78rem;font-weight:700;cursor:pointer;transition:.2s;font-family:'JetBrains Mono',monospace;-webkit-tap-highlight-color:transparent;flex:1;min-width:48px;text-align:center}
+    .lens-btn{padding:8px 12px;border-radius:10px;background:rgba(255, 255, 255,.06);border:1px solid rgba(255, 255, 255,.1);color:rgba(255, 255, 255,.7);font-size:.78rem;font-weight:700;cursor:pointer;transition:.2s;font-family:'JetBrains Mono',monospace;-webkit-tap-highlight-color:transparent;flex:1;min-width:48px;text-align:center}
     .lens-btn:active{transform:scale(.92)}
     .lens-btn.active{background:rgba(6,182,212,.2);border-color:rgba(6,182,212,.6);color:var(--cyan)}
-
-    /* External device dropdown */
-    #device-select{width:100%;padding:9px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#f0f0ff;font-family:'Inter',sans-serif;font-size:.78rem;outline:none;cursor:pointer}
-    #ext-cam-row{display:none}
 
     /* Zoom bar — tersembunyi default */
     #zoom-bar{
@@ -154,27 +181,14 @@
 
   <!-- Camera Control Panel (tersembunyi, muncul saat layar diketuk) -->
   <div id="cam-panel">
-    <!-- Row 1: Depan / Belakang -->
     <div class="cam-panel-label">📷 Pilih Kamera</div>
-    <div class="cam-panel-row">
-      <button class="cam-flip-btn" id="btn-back" onclick="setFacing('environment')">🔙 Belakang</button>
-      <button class="cam-flip-btn" id="btn-front" onclick="setFacing('user')">🤳 Depan</button>
-    </div>
+    <!-- List camera devices yang ditemukan -->
+    <div id="camera-options-list"></div>
 
     <!-- Row 2: Preset Lensa -->
     <div id="lens-preset-section" style="display:none">
-      <div class="cam-panel-label" style="margin-top:8px">🔭 Lensa</div>
+      <div class="cam-panel-label" style="margin-top:8px">🔭 Lensa / Zoom</div>
       <div id="lens-preset-row" class="cam-panel-row" style="margin-bottom:0"></div>
-    </div>
-
-    <!-- Row 3: Kamera Eksternal -->
-    <div id="ext-cam-row">
-      <div class="cam-panel-label" style="margin-top:8px">🔌 Kamera Eksternal</div>
-      <div class="cam-panel-row" style="margin-bottom:0">
-        <select id="device-select" onchange="changeCameraDevice(this.value)">
-          <option value="">— Pilih Perangkat —</option>
-        </select>
-      </div>
     </div>
   </div>
 
@@ -351,63 +365,82 @@
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(d => d.kind === 'videoinput');
-        const select = document.getElementById('device-select');
-        const extRow = document.getElementById('ext-cam-row');
+        const container = document.getElementById('camera-options-list');
+        if (!container) return;
 
-        // Pisahkan kamera bawaan HP vs kamera eksternal
-        // Kamera bawaan Android biasanya hanya punya 2 entry (depan & belakang)
-        // Kamera eksternal akan ditampilkan sebagai opsi tambahan
-        const builtInKeywords = ['back', 'front', 'facing', 'camera 0', 'camera 1', 'rear', 'wide', 'ultra', 'tele', 'environment', 'user'];
-        const isBuiltIn = (label) => !label || builtInKeywords.some(k => label.toLowerCase().includes(k));
+        container.innerHTML = '';
 
-        const currentVal = select.value;
-        select.innerHTML = '<option value="">— Pilih Perangkat —</option>';
+        // Dapatkan deviceId aktif saat ini dari track stream lokal
+        const activeTrack = localStream?.getVideoTracks()[0];
+        const activeSettings = activeTrack?.getSettings();
+        const activeDeviceId = activeSettings?.deviceId;
 
-        let hasExternal = false;
         videoDevices.forEach((device, index) => {
-          const label = device.label || `Kamera ${index + 1}`;
-          // Tampilkan semua, tandai mana yang kemungkinan eksternal
-          const isExt = !isBuiltIn(label);
-          if (isExt) hasExternal = true;
-          const opt = document.createElement('option');
-          opt.value = device.deviceId;
-          opt.textContent = isExt ? `🔌 ${label}` : `📷 ${label}`;
-          select.appendChild(opt);
+          const btn = document.createElement('button');
+          btn.className = 'cam-select-btn';
+
+          let label = device.label || `Kamera ${index + 1}`;
+          let labelLower = label.toLowerCase();
+
+          let icon = '📷';
+          let direction = '';
+
+          if (labelLower.includes('front') || labelLower.includes('user') || labelLower.includes('depan')) {
+            icon = '🤳';
+            direction = 'Depan';
+          } else if (labelLower.includes('back') || labelLower.includes('environment') || labelLower.includes('rear') || labelLower.includes('belakang')) {
+            icon = '📷';
+            direction = 'Belakang';
+          } else {
+            icon = '📹';
+          }
+
+          // Format label agar lebih rapi dan informatif
+          let displayLabel = label;
+          displayLabel = displayLabel.replace(/facing\s+/gi, '');
+          displayLabel = displayLabel.replace(/camera\s+/gi, 'Kamera ');
+
+          if (direction && !displayLabel.includes(direction)) {
+            displayLabel = `${displayLabel} (${direction})`;
+          }
+
+          btn.innerHTML = `<span style="font-size:1.1rem">${icon}</span> <span style="flex:1">${displayLabel}</span>`;
+
+          // Tentukan apakah kamera ini sedang aktif
+          const isActive = (selectedDeviceId === device.deviceId) || 
+                           (!selectedDeviceId && activeDeviceId === device.deviceId) ||
+                           (!selectedDeviceId && !activeDeviceId && index === 0);
+
+          if (isActive) {
+            btn.classList.add('active');
+            if (!selectedDeviceId) {
+              selectedDeviceId = device.deviceId;
+            }
+          }
+
+          btn.onclick = async () => {
+            if (selectedDeviceId === device.deviceId) return;
+            selectedDeviceId = device.deviceId;
+
+            // Tandai tombol aktif
+            document.querySelectorAll('.cam-select-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            // Reset zoom ke 1.0 agar tidak ada zoom ketika berganti kamera
+            currentZoom = 1;
+
+            await restartCamera();
+          };
+
+          container.appendChild(btn);
         });
 
-        // Tampilkan baris eksternal jika ada kamera selain bawaan
-        extRow.style.display = (hasExternal || videoDevices.length > 2) ? 'block' : 'none';
-        if (currentVal) select.value = currentVal;
-
-        // Update tombol active Depan/Belakang
-        document.getElementById('btn-back').classList.toggle('active', facingMode === 'environment' && !selectedDeviceId);
-        document.getElementById('btn-front').classList.toggle('active', facingMode === 'user' && !selectedDeviceId);
-
-        // Tampilkan panel kamera
-        document.getElementById('cam-panel').style.display = 'block';
+        // Tampilkan panel kamera jika ada perangkat
+        document.getElementById('cam-panel').style.display = videoDevices.length > 0 ? 'block' : 'none';
 
       } catch (e) {
         console.warn('Gagal memuat daftar kamera:', e);
       }
-    }
-
-    async function changeCameraDevice(deviceId) {
-      selectedDeviceId = deviceId || null;
-      currentZoom = 1;
-      // Jika memilih dari dropdown, nonaktifkan tombol Depan/Belakang
-      document.getElementById('btn-back').classList.toggle('active', !selectedDeviceId && facingMode === 'environment');
-      document.getElementById('btn-front').classList.toggle('active', !selectedDeviceId && facingMode === 'user');
-      await restartCamera();
-    }
-
-    async function setFacing(mode) {
-      selectedDeviceId = null; // Lepaskan kamera eksternal jika ada
-      facingMode = mode;
-      currentZoom = 1;
-      document.getElementById('btn-back').classList.toggle('active', mode === 'environment');
-      document.getElementById('btn-front').classList.toggle('active', mode === 'user');
-      document.getElementById('device-select').value = '';
-      await restartCamera();
     }
 
     // ============================================================
@@ -423,19 +456,19 @@
           minZoom = caps.zoom.min || 1;
           maxZoom = caps.zoom.max || 10;
           zoomStep = (maxZoom - minZoom) / 20;
-          currentZoom = Math.max(minZoom, Math.min(maxZoom, currentZoom));
+          // Gunakan default zoom neutral 1.0 (tanpa zoom)
+          currentZoom = 1;
           console.log(`[Zoom] Didukung! min=${minZoom} max=${maxZoom}`);
           buildLensPresets(minZoom, maxZoom);
-          // Auto-start di zoom terlebar (minZoom) agar FOV sama dengan kamera bawaan
-          await applyZoom(minZoom);
+          // PENTING: Jangan apply zoom secara otomatis agar tidak memicu auto-zoom/crop browser.
+          updateZoomUI();
         } else {
           zoomSupported = false;
           minZoom = 1; maxZoom = 5; zoomStep = 0.5;
-          // Sembunyikan preset lensa jika tidak ada native zoom
           document.getElementById('lens-preset-section').style.display = 'none';
           console.log('[Zoom] Native zoom tidak didukung, pakai CSS transform.');
+          updateZoomUI();
         }
-        updateZoomUI();
       } catch(e) {
         zoomSupported = false;
         minZoom = 1; maxZoom = 5; zoomStep = 0.5;
@@ -774,8 +807,43 @@
     socket.on('remote-command', async ({ command, value }) => {
       switch (command) {
         case 'flip-camera':
-          facingMode = facingMode === 'environment' ? 'user' : 'environment';
-          await restartCamera();
+          try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(d => d.kind === 'videoinput');
+            if (videoDevices.length > 0) {
+              const activeTrack = localStream?.getVideoTracks()[0];
+              const activeDeviceId = activeTrack?.getSettings()?.deviceId;
+              const currentActive = videoDevices.find(d => d.deviceId === activeDeviceId) || videoDevices[0];
+              const currentLabel = (currentActive.label || '').toLowerCase();
+              
+              let currentFacing = 'environment';
+              if (currentLabel.includes('front') || currentLabel.includes('user') || currentLabel.includes('depan')) {
+                currentFacing = 'user';
+              }
+              
+              const oppositeDevice = videoDevices.find(d => {
+                const l = (d.label || '').toLowerCase();
+                if (currentFacing === 'environment') {
+                  return l.includes('front') || l.includes('user') || l.includes('depan');
+                } else {
+                  return l.includes('back') || l.includes('environment') || l.includes('rear') || l.includes('belakang');
+                }
+              });
+              
+              if (oppositeDevice) {
+                selectedDeviceId = oppositeDevice.deviceId;
+                currentZoom = 1;
+                await restartCamera();
+              } else {
+                facingMode = facingMode === 'environment' ? 'user' : 'environment';
+                selectedDeviceId = null;
+                currentZoom = 1;
+                await restartCamera();
+              }
+            }
+          } catch (err) {
+            console.warn('Flip camera remote command error:', err);
+          }
           break;
 
         case 'toggle-mic':
