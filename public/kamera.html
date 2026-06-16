@@ -46,8 +46,23 @@
     .ctrl-fab{width:48px;height:48px;border-radius:14px;background:rgba(10,10,18,.85);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.12);color:#fff;font-size:1.3rem;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.2s;-webkit-tap-highlight-color:transparent}
     .ctrl-fab:active{transform:scale(.9)}
 
+    /* Zoom controls */
+    #zoom-bar{position:fixed;right:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;z-index:20;opacity:0;transition:.3s;pointer-events:none}
+    #zoom-bar.show{opacity:1;pointer-events:auto}
+    .zoom-fab{width:44px;height:44px;border-radius:12px;background:rgba(10,10,18,.85);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:1.4rem;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.2s;-webkit-tap-highlight-color:transparent;user-select:none}
+    .zoom-fab:active{transform:scale(.88);background:rgba(99,102,241,.5)}
+    #zoom-level{font-size:.65rem;font-weight:700;color:rgba(255,255,255,.7);font-family:'JetBrains Mono',monospace;background:rgba(10,10,18,.7);padding:3px 6px;border-radius:6px;text-align:center;min-width:36px}
+
+    /* Zoom indicator (flash saat zoom berubah) */
+    #zoom-indicator{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(10,10,18,.75);backdrop-filter:blur(12px);border:1px solid rgba(99,102,241,.35);color:#fff;font-size:1.4rem;font-weight:700;font-family:'JetBrains Mono',monospace;padding:10px 22px;border-radius:14px;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s}
+    #zoom-indicator.show{opacity:1}
+
+    /* Device selector — selalu tampil di bawah (di atas ctrl-bar) */
+    #device-select-wrap{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);z-index:20;display:none;width:90%;max-width:320px}
+    #device-select{width:100%;padding:10px 16px;background:rgba(10,10,18,.92);backdrop-filter:blur(10px);border:1px solid rgba(99,102,241,.35);border-radius:12px;color:#f0f0ff;font-family:'Inter',sans-serif;font-size:.78rem;outline:none;cursor:pointer;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+
     /* Indikator kecil: server offline tapi P2P masih aktif */
-    #server-indicator{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:rgba(245,158,11,.9);color:#000;font-size:.65rem;font-weight:700;padding:5px 12px;border-radius:999px;z-index:25;display:none;white-space:nowrap;animation:fadeInOut 2.5s ease-in-out infinite}
+    #server-indicator{position:fixed;bottom:140px;left:50%;transform:translateX(-50%);background:rgba(245,158,11,.9);color:#000;font-size:.65rem;font-weight:700;padding:5px 12px;border-radius:999px;z-index:25;display:none;white-space:nowrap;animation:fadeInOut 2.5s ease-in-out infinite}
     @keyframes fadeInOut{0%,100%{opacity:1}50%{opacity:.5}}
   </style>
 </head>
@@ -81,12 +96,22 @@
   <div class="rec-badge" id="rec-badge">⏺ REC</div>
   <div class="flash-overlay" id="flash-ov"></div>
 
-  <!-- Device Selector Dropdown (Untuk Kamera External / GoPro / Webcam) -->
-  <div id="device-select-wrap" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99;display:none;width:90%;max-width:320px">
-    <select id="device-select" style="width:100%;padding:11px 16px;background:rgba(10,10,18,0.9);backdrop-filter:blur(10px);border:1px solid rgba(99,102,241,0.35);border-radius:12px;color:#f0f0ff;font-family:'Inter',sans-serif;font-size:0.8rem;outline:none;cursor:pointer;box-shadow:0 8px 32px rgba(0,0,0,0.5)" onchange="changeCameraDevice(this.value)">
-      <option value="">Default Camera</option>
+  <!-- Device Selector Dropdown (Untuk Kamera External / Sony Mirrorless / GoPro / Webcam) -->
+  <div id="device-select-wrap">
+    <select id="device-select" onchange="changeCameraDevice(this.value)">
+      <option value="">📷 Default Camera</option>
     </select>
   </div>
+
+  <!-- Zoom Controls -->
+  <div id="zoom-bar">
+    <button class="zoom-fab" onclick="stepZoom(1)" title="Zoom In">🔍</button>
+    <div id="zoom-level">1×</div>
+    <button class="zoom-fab" onclick="stepZoom(-1)" title="Zoom Out">🔎</button>
+  </div>
+
+  <!-- Zoom Indicator Popup -->
+  <div id="zoom-indicator"></div>
 
   <script>
     // ============================================================
@@ -113,7 +138,17 @@
     let isMuted = false;
     let isFlashOn = false;
     let currentResolution = '720p';
-    
+
+    // ============================================================
+    // ZOOM STATE
+    // ============================================================
+    let currentZoom = 1;
+    let minZoom = 1;
+    let maxZoom = 1;
+    let zoomStep = 0.5;
+    let zoomIndicatorTimer = null;
+    let zoomSupported = false;
+
     function getScreenOrientation() {
       if (window.screen && window.screen.orientation && window.screen.orientation.type) {
         const type = window.screen.orientation.type;
@@ -212,7 +247,10 @@
         // Mute jika perlu
         localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
 
-        // Update list pilihan kamera (GoPro / Webcam / Capture Card)
+        // Cek kapabilitas zoom kamera
+        await detectZoomCapabilities();
+
+        // Update list pilihan kamera (GoPro / Webcam / Sony Mirrorless / Capture Card)
         await updateDeviceList();
 
         // Join room
@@ -240,8 +278,8 @@
           select.appendChild(opt);
         });
 
-        // Tampilkan select jika terdeteksi lebih dari 1 pilihan kamera
-        if (videoDevices.length > 1) {
+        // Tampilkan selector kamera jika ada lebih dari 1 perangkat (atau selalu tampilkan jika ada kamera eksternal)
+        if (videoDevices.length >= 1) {
           document.getElementById('device-select-wrap').style.display = 'block';
           if (currentVal) select.value = currentVal;
         } else {
@@ -254,8 +292,103 @@
 
     async function changeCameraDevice(deviceId) {
       selectedDeviceId = deviceId || null;
+      currentZoom = 1; // Reset zoom saat ganti kamera
       await restartCamera();
     }
+
+    // ============================================================
+    // ZOOM — Deteksi, Terapkan, Pinch Gesture
+    // ============================================================
+    async function detectZoomCapabilities() {
+      const track = localStream?.getVideoTracks()[0];
+      if (!track) return;
+      try {
+        const caps = track.getCapabilities();
+        if (caps && caps.zoom) {
+          zoomSupported = true;
+          minZoom = caps.zoom.min || 1;
+          maxZoom = caps.zoom.max || 10;
+          zoomStep = (maxZoom - minZoom) / 20; // 20 langkah dari min ke max
+          // Sesuaikan currentZoom dalam batas yang didukung
+          currentZoom = Math.max(minZoom, Math.min(maxZoom, currentZoom));
+          console.log(`[Zoom] Didukung! min=${minZoom} max=${maxZoom} step=${zoomStep.toFixed(2)}`);
+        } else {
+          zoomSupported = false;
+          minZoom = 1; maxZoom = 5; zoomStep = 0.5; // Fallback CSS zoom
+          console.log('[Zoom] Native zoom tidak didukung, pakai CSS transform.');
+        }
+        updateZoomUI();
+      } catch(e) {
+        zoomSupported = false;
+        minZoom = 1; maxZoom = 5; zoomStep = 0.5;
+      }
+    }
+
+    async function applyZoom(level) {
+      currentZoom = Math.max(minZoom, Math.min(maxZoom, level));
+      const track = localStream?.getVideoTracks()[0];
+
+      if (zoomSupported && track) {
+        // Native zoom — kualitas tetap tinggi, tidak ada degradasi
+        try {
+          await track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
+        } catch(e) { console.warn('[Zoom] applyConstraints gagal:', e); }
+      } else {
+        // Fallback: CSS transform scale pada elemen video
+        const video = document.getElementById('local-video');
+        video.style.transform = currentZoom > 1 ? `scale(${currentZoom})` : '';
+      }
+
+      updateZoomUI();
+      showZoomIndicator();
+    }
+
+    function stepZoom(direction) {
+      applyZoom(currentZoom + (direction * zoomStep));
+    }
+
+    function updateZoomUI() {
+      const label = currentZoom.toFixed(currentZoom < 10 ? 1 : 0) + '×';
+      document.getElementById('zoom-level').textContent = label;
+    }
+
+    function showZoomIndicator() {
+      const el = document.getElementById('zoom-indicator');
+      el.textContent = currentZoom.toFixed(1) + '×';
+      el.classList.add('show');
+      clearTimeout(zoomIndicatorTimer);
+      zoomIndicatorTimer = setTimeout(() => el.classList.remove('show'), 900);
+    }
+
+    // Pinch-to-Zoom gesture
+    function setupPinchZoom() {
+      const container = document.getElementById('video-container');
+      let initialDist = 0;
+      let initialZoom = 1;
+
+      container.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          initialDist = Math.hypot(dx, dy);
+          initialZoom = currentZoom;
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      container.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2) {
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const dist = Math.hypot(dx, dy);
+          const scale = dist / initialDist;
+          applyZoom(initialZoom * scale);
+          e.preventDefault();
+        }
+      }, { passive: false });
+    }
+
+    setupPinchZoom();
 
     // ============================================================
     // WEBRTC — BUAT PEER CONNECTION
@@ -280,11 +413,13 @@
           showPanel(false);
           document.getElementById('live-pill').style.display = 'flex';
           document.getElementById('rec-badge').classList.add('show');
+          document.getElementById('zoom-bar').classList.add('show');
           setStatus('🔴', 'LIVE', 'Streaming ke OBS sedang berjalan.');
         } else if (['disconnected','failed'].includes(pc.connectionState)) {
           showPanel(true);
           document.getElementById('live-pill').style.display = 'none';
           document.getElementById('rec-badge').classList.remove('show');
+          document.getElementById('zoom-bar').classList.remove('show');
           setStatus('📡', 'Koneksi Terputus', 'OBS terputus. Menunggu reconnect...', true);
         }
       };
@@ -437,6 +572,10 @@
         case 'change-orientation':
           currentOrientation = value;
           await restartCamera();
+          break;
+
+        case 'change-zoom':
+          await applyZoom(parseFloat(value));
           break;
       }
     });
