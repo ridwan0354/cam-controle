@@ -45,6 +45,10 @@
     #ctrl-bar.show{opacity:1;pointer-events:auto}
     .ctrl-fab{width:48px;height:48px;border-radius:14px;background:rgba(10,10,18,.85);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.12);color:#fff;font-size:1.3rem;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.2s;-webkit-tap-highlight-color:transparent}
     .ctrl-fab:active{transform:scale(.9)}
+
+    /* Indikator kecil: server offline tapi P2P masih aktif */
+    #server-indicator{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:rgba(245,158,11,.9);color:#000;font-size:.65rem;font-weight:700;padding:5px 12px;border-radius:999px;z-index:25;display:none;white-space:nowrap;animation:fadeInOut 2.5s ease-in-out infinite}
+    @keyframes fadeInOut{0%,100%{opacity:1}50%{opacity:.5}}
   </style>
 </head>
 <body>
@@ -154,6 +158,22 @@
     function showPanel(show) {
       document.getElementById('status-panel').style.display = show ? 'flex' : 'none';
       document.getElementById('hud').style.display = show ? 'none' : 'flex';
+    }
+
+    function showServerIndicator(msg) {
+      let el = document.getElementById('server-indicator');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'server-indicator';
+        document.body.appendChild(el);
+      }
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    function hideServerIndicator() {
+      const el = document.getElementById('server-indicator');
+      if (el) el.style.display = 'none';
     }
 
     // ============================================================
@@ -277,12 +297,26 @@
     // ============================================================
     socket.on('connect', () => {
       setStatus('📡', 'Terhubung ke Server', 'Menyiapkan kamera...');
+      // Sembunyikan indikator offline jika pernah tampil
+      hideServerIndicator();
       if (ROOM_ID && CAM_ID) initCamera();
     });
 
     socket.on('disconnect', () => {
-      setStatus('❌', 'Server Terputus', 'Mencoba reconnect...', false);
-      showPanel(true);
+      // Hanya tampilkan panel error besar jika P2P juga tidak aktif.
+      // Jika video P2P masih mengalir via WiFi lokal, cukup tampilkan indikator kecil.
+      const p2pActive = pc && pc.connectionState === 'connected';
+      if (p2pActive) {
+        showServerIndicator('⚠️ Server Offline – Kamera P2P Masih Aktif');
+      } else {
+        setStatus('❌', 'Server Terputus', 'Mencoba reconnect...', false);
+        showPanel(true);
+      }
+    });
+
+    // Saat internet kembali: hapus indikator dan rejoin room di server
+    socket.on('connect', () => {
+      hideServerIndicator();
     });
 
     socket.on('start-streaming', async ({ camId }) => {

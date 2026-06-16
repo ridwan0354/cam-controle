@@ -22,6 +22,10 @@
     /* Camera name tag (optional, bisa disembunyikan di OBS) */
     .cam-tag{position:fixed;bottom:12px;left:12px;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.7);font-family:system-ui,sans-serif;font-size:.65rem;padding:4px 10px;border-radius:6px;z-index:20;opacity:0;transition:.3s}
     .cam-tag.show{opacity:1}
+
+    /* Indikator kecil: server offline tapi P2P masih hidup */
+    #server-indicator{position:fixed;top:10px;right:10px;background:rgba(245,158,11,.9);color:#000;font-family:system-ui,sans-serif;font-size:.65rem;font-weight:700;padding:5px 10px;border-radius:6px;z-index:30;display:none;animation:fadeInOut 2.5s ease-in-out infinite}
+    @keyframes fadeInOut{0%,100%{opacity:1}50%{opacity:.6}}
   </style>
 </head>
 <body>
@@ -80,8 +84,25 @@
     });
 
     socket.on('disconnect', () => {
-      document.getElementById('ov-title').textContent = 'Server Terputus...';
-      document.getElementById('overlay').classList.remove('hidden');
+      // Hanya tampilkan layar hitam jika WebRTC P2P juga tidak aktif.
+      // Jika P2P masih connected (video mengalir via WiFi lokal), biarkan video tetap tampil.
+      const p2pActive = pc && pc.connectionState === 'connected';
+      if (p2pActive) {
+        // Tampilkan indikator kecil di pojok layar tanpa menutupi video
+        showServerIndicator('⚠️ Server Offline – Video P2P Aktif');
+      } else {
+        document.getElementById('ov-title').textContent = 'Server Terputus...';
+        document.getElementById('ov-sub').textContent = 'Menunggu koneksi kembali...';
+        document.getElementById('overlay').classList.remove('hidden');
+      }
+    });
+
+    socket.on('connect', () => {
+      // Saat internet kembali, hapus indikator dan rejoin room
+      hideServerIndicator();
+      if (ROOM_ID && CAM_ID) {
+        socket.emit('join-room', { roomId: ROOM_ID, role: 'receiver', camId: CAM_ID });
+      }
     });
 
     // ============================================================
@@ -275,6 +296,25 @@
           }, 3000);
         });
       }
+    }
+
+    // ============================================================
+    // INDIKATOR SERVER OFFLINE (Muncul jika internet putus tapi P2P masih aktif)
+    // ============================================================
+    function showServerIndicator(msg) {
+      let el = document.getElementById('server-indicator');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'server-indicator';
+        document.body.appendChild(el);
+      }
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    function hideServerIndicator() {
+      const el = document.getElementById('server-indicator');
+      if (el) el.style.display = 'none';
     }
 
     function applyOrientationStyle(orientation) {
