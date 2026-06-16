@@ -258,12 +258,16 @@
 
         const res = resolutions[currentResolution] || resolutions['720p'];
         const isPortrait = currentOrientation === 'portrait';
-        
+
+        // PENTING: Jangan paksa aspectRatio ke kamera sensor.
+        // Kamera fisik punya rasio native sendiri (biasanya 4:3).
+        // Jika kita paksa 9:16 atau 16:9, browser akan crop/zoom gambar
+        // sehingga terlihat lebih zoom dari seharusnya.
+        // Biarkan kamera output native-nya, CSS yang handle tampilan layar.
         const videoConstraints = {
-          width: { ideal: isPortrait ? res.height : res.width }, 
-          height: { ideal: isPortrait ? res.width : res.height }, 
-          aspectRatio: { ideal: isPortrait ? (9/16) : (16/9) },
-          frameRate: { ideal: 30 } 
+          width:  { ideal: res.width  },
+          height: { ideal: res.height },
+          frameRate: { ideal: 30 }
         };
 
         // Jika user memilih kamera tertentu (misal GoPro/Capture Card)
