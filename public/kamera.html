@@ -57,12 +57,29 @@
     #zoom-indicator{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(10,10,18,.75);backdrop-filter:blur(12px);border:1px solid rgba(99,102,241,.35);color:#fff;font-size:1.4rem;font-weight:700;font-family:'JetBrains Mono',monospace;padding:10px 22px;border-radius:14px;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s}
     #zoom-indicator.show{opacity:1}
 
-    /* Device selector — selalu tampil di bawah (di atas ctrl-bar) */
-    #device-select-wrap{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);z-index:20;display:none;width:90%;max-width:320px}
-    #device-select{width:100%;padding:10px 16px;background:rgba(10,10,18,.92);backdrop-filter:blur(10px);border:1px solid rgba(99,102,241,.35);border-radius:12px;color:#f0f0ff;font-family:'Inter',sans-serif;font-size:.78rem;outline:none;cursor:pointer;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+    /* Camera control panel (di atas ctrl-bar) */
+    #cam-panel{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);z-index:20;display:none;width:92%;max-width:380px;background:rgba(10,10,18,.88);backdrop-filter:blur(16px);border:1px solid rgba(99,102,241,.25);border-radius:18px;padding:12px 14px;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+    .cam-panel-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+    .cam-panel-row:last-child{margin-bottom:0}
+    .cam-panel-label{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,.35);margin-bottom:5px}
+
+    /* Flip Buttons */
+    .cam-flip-btn{flex:1;padding:9px 6px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;font-size:.75rem;font-weight:600;cursor:pointer;transition:.2s;font-family:'Inter',sans-serif;-webkit-tap-highlight-color:transparent;display:flex;align-items:center;justify-content:center;gap:5px}
+    .cam-flip-btn:active{transform:scale(.94)}
+    .cam-flip-btn.active{background:rgba(99,102,241,.25);border-color:rgba(99,102,241,.6);color:var(--cyan)}
+
+    /* Lens Preset Buttons */
+    #lens-preset-row{display:flex;gap:6px;flex-wrap:wrap}
+    .lens-btn{padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.7);font-size:.78rem;font-weight:700;cursor:pointer;transition:.2s;font-family:'JetBrains Mono',monospace;-webkit-tap-highlight-color:transparent;flex:1;min-width:48px;text-align:center}
+    .lens-btn:active{transform:scale(.92)}
+    .lens-btn.active{background:rgba(6,182,212,.2);border-color:rgba(6,182,212,.6);color:var(--cyan)}
+
+    /* External device dropdown */
+    #device-select{width:100%;padding:9px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#f0f0ff;font-family:'Inter',sans-serif;font-size:.78rem;outline:none;cursor:pointer}
+    #ext-cam-row{display:none}
 
     /* Indikator kecil: server offline tapi P2P masih aktif */
-    #server-indicator{position:fixed;bottom:140px;left:50%;transform:translateX(-50%);background:rgba(245,158,11,.9);color:#000;font-size:.65rem;font-weight:700;padding:5px 12px;border-radius:999px;z-index:25;display:none;white-space:nowrap;animation:fadeInOut 2.5s ease-in-out infinite}
+    #server-indicator{position:fixed;bottom:200px;left:50%;transform:translateX(-50%);background:rgba(245,158,11,.9);color:#000;font-size:.65rem;font-weight:700;padding:5px 12px;border-radius:999px;z-index:25;display:none;white-space:nowrap;animation:fadeInOut 2.5s ease-in-out infinite}
     @keyframes fadeInOut{0%,100%{opacity:1}50%{opacity:.5}}
   </style>
 </head>
@@ -96,11 +113,31 @@
   <div class="rec-badge" id="rec-badge">⏺ REC</div>
   <div class="flash-overlay" id="flash-ov"></div>
 
-  <!-- Device Selector Dropdown (Untuk Kamera External / Sony Mirrorless / GoPro / Webcam) -->
-  <div id="device-select-wrap">
-    <select id="device-select" onchange="changeCameraDevice(this.value)">
-      <option value="">📷 Default Camera</option>
-    </select>
+  <!-- Camera Control Panel -->
+  <div id="cam-panel">
+    <!-- Row 1: Depan / Belakang -->
+    <div class="cam-panel-label">📷 Pilih Kamera</div>
+    <div class="cam-panel-row">
+      <button class="cam-flip-btn" id="btn-back" onclick="setFacing('environment')">🔙 Belakang</button>
+      <button class="cam-flip-btn" id="btn-front" onclick="setFacing('user')">🤳 Depan</button>
+    </div>
+
+    <!-- Row 2: Preset Lensa (Ultrawide / Normal / Tele) —
+         Diisi otomatis oleh buildLensPresets() berdasarkan kemampuan kamera -->
+    <div id="lens-preset-section" style="display:none">
+      <div class="cam-panel-label" style="margin-top:8px">🔭 Lensa</div>
+      <div id="lens-preset-row" class="cam-panel-row" style="margin-bottom:0"></div>
+    </div>
+
+    <!-- Row 3: Kamera Eksternal (GoPro / Sony / Webcam / Capture Card) -->
+    <div id="ext-cam-row">
+      <div class="cam-panel-label" style="margin-top:8px">🔌 Kamera Eksternal</div>
+      <div class="cam-panel-row" style="margin-bottom:0">
+        <select id="device-select" onchange="changeCameraDevice(this.value)">
+          <option value="">— Pilih Perangkat —</option>
+        </select>
+      </div>
+    </div>
   </div>
 
   <!-- Zoom Controls -->
@@ -267,24 +304,40 @@
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(d => d.kind === 'videoinput');
         const select = document.getElementById('device-select');
-        
+        const extRow = document.getElementById('ext-cam-row');
+
+        // Pisahkan kamera bawaan HP vs kamera eksternal
+        // Kamera bawaan Android biasanya hanya punya 2 entry (depan & belakang)
+        // Kamera eksternal akan ditampilkan sebagai opsi tambahan
+        const builtInKeywords = ['back', 'front', 'facing', 'camera 0', 'camera 1', 'rear', 'wide', 'ultra', 'tele', 'environment', 'user'];
+        const isBuiltIn = (label) => !label || builtInKeywords.some(k => label.toLowerCase().includes(k));
+
         const currentVal = select.value;
-        select.innerHTML = '<option value="">Default Camera</option>';
-        
+        select.innerHTML = '<option value="">— Pilih Perangkat —</option>';
+
+        let hasExternal = false;
         videoDevices.forEach((device, index) => {
+          const label = device.label || `Kamera ${index + 1}`;
+          // Tampilkan semua, tandai mana yang kemungkinan eksternal
+          const isExt = !isBuiltIn(label);
+          if (isExt) hasExternal = true;
           const opt = document.createElement('option');
           opt.value = device.deviceId;
-          opt.textContent = device.label || `Kamera ${index + 1}`;
+          opt.textContent = isExt ? `🔌 ${label}` : `📷 ${label}`;
           select.appendChild(opt);
         });
 
-        // Tampilkan selector kamera jika ada lebih dari 1 perangkat (atau selalu tampilkan jika ada kamera eksternal)
-        if (videoDevices.length >= 1) {
-          document.getElementById('device-select-wrap').style.display = 'block';
-          if (currentVal) select.value = currentVal;
-        } else {
-          document.getElementById('device-select-wrap').style.display = 'none';
-        }
+        // Tampilkan baris eksternal jika ada kamera selain bawaan
+        extRow.style.display = (hasExternal || videoDevices.length > 2) ? 'block' : 'none';
+        if (currentVal) select.value = currentVal;
+
+        // Update tombol active Depan/Belakang
+        document.getElementById('btn-back').classList.toggle('active', facingMode === 'environment' && !selectedDeviceId);
+        document.getElementById('btn-front').classList.toggle('active', facingMode === 'user' && !selectedDeviceId);
+
+        // Tampilkan panel kamera
+        document.getElementById('cam-panel').style.display = 'block';
+
       } catch (e) {
         console.warn('Gagal memuat daftar kamera:', e);
       }
@@ -292,7 +345,20 @@
 
     async function changeCameraDevice(deviceId) {
       selectedDeviceId = deviceId || null;
-      currentZoom = 1; // Reset zoom saat ganti kamera
+      currentZoom = 1;
+      // Jika memilih dari dropdown, nonaktifkan tombol Depan/Belakang
+      document.getElementById('btn-back').classList.toggle('active', !selectedDeviceId && facingMode === 'environment');
+      document.getElementById('btn-front').classList.toggle('active', !selectedDeviceId && facingMode === 'user');
+      await restartCamera();
+    }
+
+    async function setFacing(mode) {
+      selectedDeviceId = null; // Lepaskan kamera eksternal jika ada
+      facingMode = mode;
+      currentZoom = 1;
+      document.getElementById('btn-back').classList.toggle('active', mode === 'environment');
+      document.getElementById('btn-front').classList.toggle('active', mode === 'user');
+      document.getElementById('device-select').value = '';
       await restartCamera();
     }
 
@@ -308,20 +374,62 @@
           zoomSupported = true;
           minZoom = caps.zoom.min || 1;
           maxZoom = caps.zoom.max || 10;
-          zoomStep = (maxZoom - minZoom) / 20; // 20 langkah dari min ke max
-          // Sesuaikan currentZoom dalam batas yang didukung
+          zoomStep = (maxZoom - minZoom) / 20;
           currentZoom = Math.max(minZoom, Math.min(maxZoom, currentZoom));
-          console.log(`[Zoom] Didukung! min=${minZoom} max=${maxZoom} step=${zoomStep.toFixed(2)}`);
+          console.log(`[Zoom] Didukung! min=${minZoom} max=${maxZoom}`);
+          buildLensPresets(minZoom, maxZoom);
         } else {
           zoomSupported = false;
-          minZoom = 1; maxZoom = 5; zoomStep = 0.5; // Fallback CSS zoom
+          minZoom = 1; maxZoom = 5; zoomStep = 0.5;
+          // Sembunyikan preset lensa jika tidak ada native zoom
+          document.getElementById('lens-preset-section').style.display = 'none';
           console.log('[Zoom] Native zoom tidak didukung, pakai CSS transform.');
         }
         updateZoomUI();
       } catch(e) {
         zoomSupported = false;
         minZoom = 1; maxZoom = 5; zoomStep = 0.5;
+        document.getElementById('lens-preset-section').style.display = 'none';
       }
+    }
+
+    // Buat tombol preset lensa otomatis berdasarkan range zoom kamera
+    function buildLensPresets(minZ, maxZ) {
+      // Kandidat preset (sesuai lensa umum: ultrawide, normal, tele 2x, tele 5x, tele 10x)
+      const candidates = [0.5, 0.6, 0.7, 1.0, 2.0, 3.0, 5.0, 10.0];
+      const labels     = { 0.5:'0.5×', 0.6:'0.6×', 0.7:'0.7×', 1.0:'1×', 2.0:'2×', 3.0:'3×', 5.0:'5×', 10.0:'10×' };
+      const icons      = { 0.5:'🌐', 0.6:'🌐', 0.7:'🌐', 1.0:'📷', 2.0:'🔭', 3.0:'🔭', 5.0:'🔭', 10.0:'🔭' };
+
+      // Filter preset yang masuk dalam range kamera ini
+      const valid = candidates.filter(v => v >= minZ - 0.05 && v <= maxZ + 0.05);
+
+      const row = document.getElementById('lens-preset-row');
+      row.innerHTML = '';
+
+      if (valid.length <= 1) {
+        // Tidak ada pilihan lensa berarti, sembunyikan saja
+        document.getElementById('lens-preset-section').style.display = 'none';
+        return;
+      }
+
+      document.getElementById('lens-preset-section').style.display = 'block';
+
+      valid.forEach(v => {
+        const btn = document.createElement('button');
+        btn.className = 'lens-btn' + (Math.abs(v - currentZoom) < 0.05 ? ' active' : '');
+        btn.dataset.zoom = v;
+        btn.innerHTML = `${icons[v]}<br><span style="font-size:.6rem">${labels[v]}</span>`;
+        btn.onclick = () => {
+          // Update active state
+          document.querySelectorAll('.lens-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          applyZoom(v);
+        };
+        row.appendChild(btn);
+      });
+
+      // Set zoom step lebih halus saat pakai tombol +/-
+      zoomStep = (maxZ - minZ) / 30;
     }
 
     async function applyZoom(level) {
@@ -329,18 +437,21 @@
       const track = localStream?.getVideoTracks()[0];
 
       if (zoomSupported && track) {
-        // Native zoom — kualitas tetap tinggi, tidak ada degradasi
         try {
           await track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
         } catch(e) { console.warn('[Zoom] applyConstraints gagal:', e); }
       } else {
-        // Fallback: CSS transform scale pada elemen video
         const video = document.getElementById('local-video');
         video.style.transform = currentZoom > 1 ? `scale(${currentZoom})` : '';
       }
 
       updateZoomUI();
       showZoomIndicator();
+
+      // Sinkronkan tombol preset aktif
+      document.querySelectorAll('.lens-btn').forEach(b => {
+        b.classList.toggle('active', Math.abs(parseFloat(b.dataset.zoom) - currentZoom) < 0.1);
+      });
     }
 
     function stepZoom(direction) {
