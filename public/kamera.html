@@ -748,9 +748,11 @@
           else if (currentResolution === '360p') maxBitrate = 300000; // 300 kbps
           else if (currentResolution === '4k') maxBitrate = 6000000; // 6 Mbps
           
+          parameters.degradePreference = 'maintain-framerate';
           parameters.encodings[0].maxBitrate = maxBitrate;
+          
           videoSender.setParameters(parameters)
-            .then(() => console.log(`[WebRTC] Bitrate limit applied: ${maxBitrate / 1000} kbps`))
+            .then(() => console.log(`[WebRTC] Bitrate limit applied: ${maxBitrate / 1000} kbps, preference: maintain-framerate`))
             .catch(err => console.warn('Gagal set bitrate limit:', err));
         } catch (e) {
           console.warn('Error applyBitrateLimit:', e);
