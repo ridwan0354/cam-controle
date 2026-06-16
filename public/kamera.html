@@ -743,16 +743,16 @@
           if (!parameters.encodings) parameters.encodings = [{}];
           
           let maxBitrate = 1200000; // default 720p: 1.2 Mbps
-          if (currentResolution === '1080p') maxBitrate = 2200000; // 2.2 Mbps
-          else if (currentResolution === '480p') maxBitrate = 600000; // 600 kbps
-          else if (currentResolution === '360p') maxBitrate = 300000; // 300 kbps
-          else if (currentResolution === '4k') maxBitrate = 6000000; // 6 Mbps
+          if (currentResolution === '1080p') maxBitrate = 3000000; // 3 Mbps
+          else if (currentResolution === '480p') maxBitrate = 800000; // 800 kbps
+          else if (currentResolution === '360p') maxBitrate = 400000; // 400 kbps
+          else if (currentResolution === '4k') maxBitrate = 15000000; // 15 Mbps untuk menjaga ketajaman 4K
           
-          parameters.degradePreference = 'maintain-framerate';
+          parameters.degradePreference = 'maintain-resolution';
           parameters.encodings[0].maxBitrate = maxBitrate;
           
           videoSender.setParameters(parameters)
-            .then(() => console.log(`[WebRTC] Bitrate limit applied: ${maxBitrate / 1000} kbps, preference: maintain-framerate`))
+            .then(() => console.log(`[WebRTC] Bitrate limit applied: ${maxBitrate / 1000} kbps, preference: maintain-resolution`))
             .catch(err => console.warn('Gagal set bitrate limit:', err));
         } catch (e) {
           console.warn('Error applyBitrateLimit:', e);
