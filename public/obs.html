@@ -43,6 +43,7 @@
     const params  = new URLSearchParams(location.search);
     const ROOM_ID = params.get('room');
     const CAM_ID  = params.get('cam');
+    const USE_AUDIO = params.get('audio') !== 'false';
 
     if (!ROOM_ID || !CAM_ID) {
       document.getElementById('ov-title').textContent = '⚠️ Link Tidak Valid';
@@ -268,10 +269,19 @@
         document.getElementById('overlay').classList.add('hidden');
         document.getElementById('cam-tag').classList.add('show');
         
+        // Setup listener error pada video element secara detail
+        video.onerror = () => {
+          console.error('[OBS Video Element Error]', video.error ? {
+            code: video.error.code,
+            message: video.error.message
+          } : 'Unknown Error');
+        };
+
         flvPlayer = mpegts.createPlayer({
           type: 'flv',
           isLive: true,
-          url: flvUrl
+          url: flvUrl,
+          hasAudio: USE_AUDIO
         }, {
           enableStashBuffer: false,
           liveBufferLatencyChasing: true
