@@ -619,6 +619,27 @@
     document.getElementById('server-dot').className = 'dot active';
     document.getElementById('server-txt').textContent = 'Server Terhubung';
     log('Terhubung ke server ✅', 'success');
+    
+    // Auto-rejoin room jika dasbor terputus lalu terhubung kembali
+    if (currentRoomId) {
+      let cameraPayloads = [];
+      try {
+        const savedCamerasRaw = localStorage.getItem('cam_controller_cameras');
+        if (savedCamerasRaw) {
+          const savedCams = JSON.parse(savedCamerasRaw);
+          cameraPayloads = Object.entries(savedCams).map(([id, cam]) => ({
+            id,
+            name: cam.name,
+            orientation: cam.orientation || 'landscape',
+            type: cam.type || 'webrtc'
+          }));
+        }
+      } catch (e) {
+        console.error('Gagal parsing kamera untuk rejoin:', e);
+      }
+      socket.emit('join-room', { roomId: currentRoomId, role: 'dashboard', cameras: cameraPayloads });
+      log(`Rejoin room otomatis ke server: ${currentRoomId}`, 'info');
+    }
   });
 
   socket.on('disconnect', () => {
