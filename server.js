@@ -318,16 +318,25 @@ nms.on('postPublish', (id, streamPath, args) => {
   if (!streamKey) return;
   const underscoreIndex = streamKey.indexOf('_');
   if (underscoreIndex !== -1) {
-    const roomId = streamKey.substring(0, underscoreIndex);
-    const camId = streamKey.substring(underscoreIndex + 1);
+    const roomId = streamKey.substring(0, underscoreIndex).toUpperCase();
+    const camId = streamKey.substring(underscoreIndex + 1).toUpperCase();
 
+    console.log(`[NMS] Mencari Room: ${roomId}, Cam: ${camId}`);
     const room = rooms[roomId];
-    if (room && room.cameras[camId]) {
-      room.cameras[camId].sender = 'rtmp_' + id;
-      room.cameras[camId].orientation = 'landscape'; // RTMP default landscape
-      broadcastStatus(roomId);
-      console.log(`[${roomId}][${camId}] Aliran stream RTMP Aktif`);
+    if (room) {
+      if (room.cameras[camId]) {
+        room.cameras[camId].sender = 'rtmp_' + id;
+        room.cameras[camId].orientation = 'landscape'; // RTMP default landscape
+        broadcastStatus(roomId);
+        console.log(`[${roomId}][${camId}] Aliran stream RTMP Aktif`);
+      } else {
+        console.log(`[NMS] Kamera ${camId} tidak terdaftar di Room ${roomId}. Kamera terdaftar:`, Object.keys(room.cameras));
+      }
+    } else {
+      console.log(`[NMS] Room ${roomId} tidak ditemukan di server. Room terdaftar:`, Object.keys(rooms));
     }
+  } else {
+    console.log(`[NMS] Stream key "${streamKey}" tidak valid (format harus ROOMID_CAMID)`);
   }
 });
 
@@ -340,8 +349,8 @@ nms.on('donePublish', (id, streamPath, args) => {
   if (!streamKey) return;
   const underscoreIndex = streamKey.indexOf('_');
   if (underscoreIndex !== -1) {
-    const roomId = streamKey.substring(0, underscoreIndex);
-    const camId = streamKey.substring(underscoreIndex + 1);
+    const roomId = streamKey.substring(0, underscoreIndex).toUpperCase();
+    const camId = streamKey.substring(underscoreIndex + 1).toUpperCase();
 
     const room = rooms[roomId];
     if (room && room.cameras[camId]) {
