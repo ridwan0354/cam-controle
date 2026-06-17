@@ -310,10 +310,20 @@ const nms = new NodeMediaServer(nmsConfig);
 nms.run();
 
 // Event Listener ketika stream RTMP mulai dipublikasi (misal dari Drone atau OBS pengirim)
-nms.on('postPublish', (id, streamPath, args) => {
-  if (!streamPath) return;
-  console.log(`[NMS] Stream terhubung: id=${id} path=${streamPath}`);
-  const parts = streamPath.split('/');
+nms.on('postPublish', function(id, streamPath, args) {
+  console.log('[NMS DEBUG] postPublish arguments:');
+  for (let i = 0; i < arguments.length; i++) {
+    console.log(`  Argument ${i}:`, arguments[i]);
+  }
+
+  const sPath = streamPath || '';
+  if (!sPath) {
+    console.log('[NMS] postPublish: streamPath kosong/tidak terdefinisi.');
+    return;
+  }
+
+  console.log(`[NMS] Stream terhubung: id=${id} path=${sPath}`);
+  const parts = sPath.split('/');
   const streamKey = parts[parts.length - 1]; // format: ROOMID_CAMID
   if (!streamKey) return;
   const underscoreIndex = streamKey.indexOf('_');
@@ -341,10 +351,17 @@ nms.on('postPublish', (id, streamPath, args) => {
 });
 
 // Event Listener ketika stream RTMP selesai/terputus
-nms.on('donePublish', (id, streamPath, args) => {
-  if (!streamPath) return;
-  console.log(`[NMS] Stream terputus: id=${id} path=${streamPath}`);
-  const parts = streamPath.split('/');
+nms.on('donePublish', function(id, streamPath, args) {
+  console.log('[NMS DEBUG] donePublish arguments:');
+  for (let i = 0; i < arguments.length; i++) {
+    console.log(`  Argument ${i}:`, arguments[i]);
+  }
+
+  const sPath = streamPath || '';
+  if (!sPath) return;
+
+  console.log(`[NMS] Stream terputus: id=${id} path=${sPath}`);
+  const parts = sPath.split('/');
   const streamKey = parts[parts.length - 1];
   if (!streamKey) return;
   const underscoreIndex = streamKey.indexOf('_');
