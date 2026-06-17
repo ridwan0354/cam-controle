@@ -310,20 +310,26 @@ const nms = new NodeMediaServer(nmsConfig);
 nms.run();
 
 // Event Listener ketika stream RTMP mulai dipublikasi (misal dari Drone atau OBS pengirim)
-nms.on('postPublish', function(id, streamPath, args) {
-  console.log('[NMS DEBUG] postPublish arguments:');
-  for (let i = 0; i < arguments.length; i++) {
-    console.log(`  Argument ${i}:`, arguments[i]);
+nms.on('postPublish', (session, streamPath, args) => {
+  let idVal, pathVal;
+  
+  // Jika parameter pertama adalah object session (seperti RtmpSession)
+  if (session && typeof session === 'object') {
+    idVal = session.id;
+    pathVal = session.streamPath;
+  } else {
+    // Fallback jika berupa parameter terpisah (id, streamPath, args)
+    idVal = session;
+    pathVal = streamPath;
   }
 
-  const sPath = streamPath || '';
-  if (!sPath) {
-    console.log('[NMS] postPublish: streamPath kosong/tidak terdefinisi.');
+  if (!pathVal) {
+    console.log('[NMS] postPublish: streamPath tidak terdefinisi.');
     return;
   }
 
-  console.log(`[NMS] Stream terhubung: id=${id} path=${sPath}`);
-  const parts = sPath.split('/');
+  console.log(`[NMS] Stream terhubung: id=${idVal} path=${pathVal}`);
+  const parts = pathVal.split('/');
   const streamKey = parts[parts.length - 1]; // format: ROOMID_CAMID
   if (!streamKey) return;
   const underscoreIndex = streamKey.indexOf('_');
@@ -335,7 +341,7 @@ nms.on('postPublish', function(id, streamPath, args) {
     const room = rooms[roomId];
     if (room) {
       if (room.cameras[camId]) {
-        room.cameras[camId].sender = 'rtmp_' + id;
+        room.cameras[camId].sender = 'rtmp_' + idVal;
         room.cameras[camId].orientation = 'landscape'; // RTMP default landscape
         broadcastStatus(roomId);
         console.log(`[${roomId}][${camId}] Aliran stream RTMP Aktif`);
@@ -351,17 +357,21 @@ nms.on('postPublish', function(id, streamPath, args) {
 });
 
 // Event Listener ketika stream RTMP selesai/terputus
-nms.on('donePublish', function(id, streamPath, args) {
-  console.log('[NMS DEBUG] donePublish arguments:');
-  for (let i = 0; i < arguments.length; i++) {
-    console.log(`  Argument ${i}:`, arguments[i]);
+nms.on('donePublish', (session, streamPath, args) => {
+  let idVal, pathVal;
+  
+  if (session && typeof session === 'object') {
+    idVal = session.id;
+    pathVal = session.streamPath;
+  } else {
+    idVal = session;
+    pathVal = streamPath;
   }
 
-  const sPath = streamPath || '';
-  if (!sPath) return;
+  if (!pathVal) return;
 
-  console.log(`[NMS] Stream terputus: id=${id} path=${sPath}`);
-  const parts = sPath.split('/');
+  console.log(`[NMS] Stream terputus: id=${idVal} path=${pathVal}`);
+  const parts = pathVal.split('/');
   const streamKey = parts[parts.length - 1];
   if (!streamKey) return;
   const underscoreIndex = streamKey.indexOf('_');
