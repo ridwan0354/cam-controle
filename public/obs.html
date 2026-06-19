@@ -71,8 +71,27 @@
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
       ],
+      iceCandidatePoolSize: 10,
     };
+
+    // Modifikasi SDP Answer: inject bandwidth header agar receiver siap terima bitrate tinggi
+    function modifyAnswerSdpForQuality(sdp) {
+      const lines = sdp.split('\n');
+      const result = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        result.push(lines[i]);
+        // Tambah bandwidth hint di sisi receiver juga
+        if (line.startsWith('m=video')) {
+          result.push('b=AS:25000');   // Izinkan terima hingga 25 Mbps
+          result.push('b=TIAS:25000000');
+        }
+      }
+      return result.join('\n');
+    }
 
     // ============================================================
     // JOIN ROOM
@@ -127,7 +146,10 @@
         const video = document.getElementById('remote-video');
         const stream = event.streams[0] || new MediaStream([event.track]);
         video.srcObject = stream;
-        video.muted = true;
+        // Audio diizinkan (tidak muted) agar suara dari kamera terdengar di OBS
+        video.muted = !USE_AUDIO;
+        // Hint buffer kecil untuk mengurangi delay tanpa korbankan kualitas
+        if ('bufferingThreshold' in video) video.bufferingThreshold = 0.5;
         video.play().catch(e => console.warn('play error:', e));
       };
 
@@ -157,8 +179,13 @@
 
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer();
+
+      // Modifikasi SDP answer agar receiver tidak batasi bandwidth dari sender
+      answer.sdp = modifyAnswerSdpForQuality(answer.sdp);
+
       await pc.setLocalDescription(answer);
       socket.emit('webrtc-answer', { roomId: ROOM_ID, camId: CAM_ID, answer });
+      console.log('[OBS] Answer dikirim dengan bandwidth hint tinggi');
     });
 
     socket.on('webrtc-ice-candidate', async ({ camId, candidate }) => {
