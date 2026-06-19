@@ -229,7 +229,7 @@
     let facingMode = 'environment';
     let isMuted = false;
     let isFlashOn = false;
-    let currentResolution = '720p';
+    let currentResolution = '1080p';
 
     // ============================================================
     // ZOOM STATE
@@ -265,7 +265,11 @@
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
       ],
+      // Aktifkan pengiriman data yang lebih efisien
+      iceCandidatePoolSize: 10,
     };
 
     // Update HUD
@@ -722,7 +726,15 @@
       setStatus('⏳', 'Membuat Koneksi P2P...', 'WebRTC handshake sedang berlangsung...');
       const peerConn = createPC();
 
-      const offer = await peerConn.createOffer();
+      // offerToReceiveVideo: false karena kita hanya kirim (sender)
+      const offer = await peerConn.createOffer({
+        offerToReceiveAudio: false,
+        offerToReceiveVideo: false,
+      });
+
+      // Modifikasi SDP untuk paksa kualitas tinggi (bitrate + codec H264)
+      offer.sdp = modifySdpForQuality(offer.sdp);
+
       await peerConn.setLocalDescription(offer);
       socket.emit('webrtc-offer', { roomId: ROOM_ID, camId: CAM_ID, offer });
     });
@@ -733,6 +745,9 @@
       applyBitrateLimit();
     });
 
+    // ============================================================
+    // QUALITY ENFORCEMENT — Paksa WebRTC kirim kualitas tinggi
+    // ============================================================
     function applyBitrateLimit() {
       if (!pc) return;
       const senders = pc.getSenders();
@@ -741,23 +756,104 @@
         try {
           const parameters = videoSender.getParameters();
           if (!parameters.encodings) parameters.encodings = [{}];
-          
-          let maxBitrate = 1200000; // default 720p: 1.2 Mbps
-          if (currentResolution === '1080p') maxBitrate = 3000000; // 3 Mbps
-          else if (currentResolution === '480p') maxBitrate = 800000; // 800 kbps
-          else if (currentResolution === '360p') maxBitrate = 400000; // 400 kbps
-          else if (currentResolution === '4k') maxBitrate = 15000000; // 15 Mbps untuk menjaga ketajaman 4K
-          
-          parameters.degradePreference = 'maintain-resolution';
+          if (!parameters.encodings[0]) parameters.encodings[0] = {};
+
+          // Bitrate tinggi — setara dengan stream RTMP berkualitas baik
+          let maxBitrate = 8000000;  // default 1080p: 8 Mbps
+          if (currentResolution === '4k')    maxBitrate = 25000000; // 25 Mbps
+          else if (currentResolution === '1080p') maxBitrate = 8000000;  // 8 Mbps
+          else if (currentResolution === '720p')  maxBitrate = 5000000;  // 5 Mbps
+          else if (currentResolution === '480p')  maxBitrate = 2000000;  // 2 Mbps
+          else if (currentResolution === '360p')  maxBitrate = 800000;   // 800 kbps
+
+          // PALING PENTING: maintain-resolution → WebRTC tidak boleh turunkan resolusi
+          // saat bandwidth sedikit, lebih baik kurangi framerate.
           parameters.encodings[0].maxBitrate = maxBitrate;
-          
+          parameters.encodings[0].maxFramerate = 30;
+          parameters.encodings[0].networkPriority = 'high';
+          parameters.encodings[0].priority = 'high';
+          // degradeGracefully: false → pertahankan resolusi meski lambat
+          parameters.degradationPreference = 'maintain-resolution';
+
           videoSender.setParameters(parameters)
-            .then(() => console.log(`[WebRTC] Bitrate limit applied: ${maxBitrate / 1000} kbps, preference: maintain-resolution`))
-            .catch(err => console.warn('Gagal set bitrate limit:', err));
+            .then(() => console.log(`[WebRTC] 🎬 Kualitas diterapkan: ${maxBitrate / 1000000} Mbps @ ${currentResolution}, prefer maintain-resolution`))
+            .catch(err => console.warn('Gagal set bitrate:', err));
         } catch (e) {
           console.warn('Error applyBitrateLimit:', e);
         }
       }
+
+      // Paksa bitrate minimum agar tidak drop terlalu jauh
+      const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+      if (audioSender) {
+        try {
+          const audioParams = audioSender.getParameters();
+          if (!audioParams.encodings) audioParams.encodings = [{}];
+          if (!audioParams.encodings[0]) audioParams.encodings[0] = {};
+          audioParams.encodings[0].maxBitrate = 128000; // Audio 128 kbps
+          audioSender.setParameters(audioParams).catch(() => {});
+        } catch {}
+      }
+    }
+
+    // Modifikasi SDP untuk prefer H264 / VP9 dan bitrate tinggi
+    function modifySdpForQuality(sdp) {
+      let lines = sdp.split('\n');
+      const result = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        result.push(lines[i]);
+
+        // Tambahkan b=AS (Application Specific bandwidth) untuk video
+        if (line.startsWith('m=video')) {
+          let bwKbps = 8000; // default 8 Mbps dalam kbps
+          if (currentResolution === '4k')    bwKbps = 25000;
+          else if (currentResolution === '1080p') bwKbps = 8000;
+          else if (currentResolution === '720p')  bwKbps = 5000;
+          else if (currentResolution === '480p')  bwKbps = 2000;
+          else if (currentResolution === '360p')  bwKbps = 800;
+          result.push(`b=AS:${bwKbps}`);
+          result.push(`b=TIAS:${bwKbps * 1000}`);
+        }
+      }
+
+
+      // Prioritaskan H264 → kualitas terbaik di hampir semua device
+      let modifiedSdp = result.join('\n');
+      modifiedSdp = preferVideoCodec(modifiedSdp, 'H264');
+      return modifiedSdp;
+    }
+
+    // Pindahkan codec pilihan ke urutan pertama di SDP
+    function preferVideoCodec(sdp, codecName) {
+      const lines = sdp.split('\n');
+      const mLineIndex = lines.findIndex(l => l.startsWith('m=video'));
+      if (mLineIndex === -1) return sdp;
+
+      const codecPayloads = [];
+      const codecRegex = new RegExp('(\\d+) ' + codecName, 'i');
+      for (let i = 0; i < lines.length; i++) {
+        // Cari rtpmap yang cocok dengan codec pilihan
+        if (lines[i].toLowerCase().includes('rtpmap') && lines[i].toLowerCase().includes(codecName.toLowerCase())) {
+          const match = lines[i].match(codecRegex);
+          if (match) codecPayloads.push(match[1]);
+        }
+      }
+
+      if (codecPayloads.length === 0) return sdp; // Codec tidak ditemukan
+
+      const mLine = lines[mLineIndex];
+      const mParts = mLine.split(' ');
+      // mParts[0]=m, [1]=video, [2]=port, [3]=proto, [4+]=payloads
+      const existingPayloads = mParts.slice(4);
+      // Susun ulang: codec pilihan dulu, lalu yang lain
+      const reordered = [
+        ...codecPayloads,
+        ...existingPayloads.filter(p => !codecPayloads.includes(p))
+      ];
+      lines[mLineIndex] = [...mParts.slice(0, 4), ...reordered].join(' ');
+      return lines.join('\n');
     }
 
     socket.on('webrtc-ice-candidate', async ({ camId, candidate }) => {
