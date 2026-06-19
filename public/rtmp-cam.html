@@ -284,19 +284,26 @@
         roomId: ROOM_ID,
         camId: CAM_ID,
         mimeType: currentMimeType,
+        hasAudio: localStream ? localStream.getAudioTracks().length > 0 : true
       });
 
-      // Kirim setiap chunk ke server
+      // Kirim setiap chunk ke server jika socket terhubung
       mediaRecorder.ondataavailable = (e) => {
         if (!e.data || e.data.size === 0) return;
+        if (!socket.connected) {
+          console.warn('[RTMP] Socket terputus, mengabaikan chunk.');
+          return;
+        }
         bytesTotal += e.data.size;
         chunksTotal++;
         e.data.arrayBuffer().then(buf => {
-          socket.emit('rtmp-browser-chunk', {
-            roomId: ROOM_ID,
-            camId: CAM_ID,
-            chunk: buf,
-          });
+          if (socket.connected) {
+            socket.emit('rtmp-browser-chunk', {
+              roomId: ROOM_ID,
+              camId: CAM_ID,
+              chunk: buf,
+            });
+          }
         });
       };
 
@@ -334,8 +341,8 @@
         isStreaming = false;
       };
 
-      // Chunks setiap 500ms — balance kualitas & latency
-      mediaRecorder.start(500);
+      // Chunks setiap 1000ms — meningkatkan kestabilan koneksi jaringan mobile
+      mediaRecorder.start(1000);
     }
 
     // ============================================================
@@ -441,16 +448,63 @@
     // ============================================================
     // SOCKET EVENTS
     // ============================================================
+    let wasStreamingBeforeDisconnect = false;
+
     socket.on('connect', () => {
-      if (ROOM_ID && CAM_ID) initCamera();
+      if (ROOM_ID && CAM_ID) {
+        if (!localStream) {
+          initCamera();
+        } else {
+          // Re-join room saja tanpa restart getUserMedia
+          socket.emit('join-room', {
+            roomId: ROOM_ID,
+            role: 'sender',
+            camId: CAM_ID,
+            camName: CAM_NAME,
+            orientation: 'landscape',
+          });
+          // Pulihkan stream jika sebelumnya sedang berjalan
+          if (wasStreamingBeforeDisconnect) {
+            wasStreamingBeforeDisconnect = false;
+            startStreaming();
+          }
+        }
+      }
     });
 
     socket.on('disconnect', () => {
+      if (isStreaming) {
+        wasStreamingBeforeDisconnect = true;
+        // Hentikan mediaRecorder saja agar track kamera lokal tetap hidup
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          try { mediaRecorder.stop(); } catch (e) {}
+        }
+        isStreaming = false;
+        clearInterval(bitrateTimer);
+
+        document.getElementById('live-pill').style.display = 'none';
+        document.getElementById('stats-bar').classList.remove('show');
+        document.getElementById('ctrl-bar').classList.remove('visible');
+        document.getElementById('codec-badge').classList.remove('show');
+
+        setStatus('🔌', 'Koneksi Terputus', 'Mencoba menghubungkan kembali...', false);
+        showPanel(true);
+      }
+    });
+
+    socket.on('rtmp-ffmpeg-error', ({ code }) => {
+      console.error('[RTMP] FFmpeg error pada server, exit code:', code);
       const streaming = isStreaming;
       stopStreaming();
       if (streaming) {
-        setStatus('❌', 'Server Terputus', 'Mencoba reconnect...', false);
+        setStatus('❌', 'Error Stream Server', `Proses server mengalami masalah (code ${code}). Memulihkan...`, false);
         showPanel(true);
+        // Coba restart stream setelah 3 detik
+        setTimeout(() => {
+          if (!isStreaming && localStream && socket.connected) {
+            startStreaming();
+          }
+        }, 3000);
       }
     });
 

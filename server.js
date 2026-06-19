@@ -23,6 +23,9 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
+  maxHttpBufferSize: 1e8, // 100 MB untuk menangani chunk video resolusi tinggi
+  pingTimeout: 60000,     // Timeout lebih panjang untuk kestabilan jaringan mobile
+  pingInterval: 25000,
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -43,12 +46,13 @@ function getLocalIP() {
 
 const LOCAL_IP = getLocalIP();
 const PORT = process.env.PORT || 3000;
+const NMS_HTTP_PORT = parseInt(PORT) + 1; // e.g. 3001 atau 3101
 
 app.get('/api/info', (req, res) => res.json({ 
   localIP: LOCAL_IP, 
   port: PORT,
   rtmpPort: 1935,
-  flvPort: 8000
+  flvPort: NMS_HTTP_PORT
 }));
 
 // ============================================================
@@ -270,7 +274,7 @@ io.on('connection', (socket) => {
   // ============================================================
   // Browser → RTMP (via MediaRecorder → FFmpeg → NMS)
   // ============================================================
-  socket.on('rtmp-browser-start', ({ roomId, camId, mimeType }) => {
+  socket.on('rtmp-browser-start', ({ roomId, camId, mimeType, hasAudio }) => {
     const key = `${roomId}_${camId}`;
 
     // Hentikan proses FFmpeg lama jika ada
@@ -287,11 +291,13 @@ io.on('connection', (socket) => {
 
     const rtmpUrl = `rtmp://127.0.0.1:1935/live/${key}`;
     const isH264  = mimeType && (mimeType.includes('h264') || mimeType.includes('avc1'));
+    const isMp4   = mimeType && mimeType.includes('mp4');
+    const inputFormat = isMp4 ? 'mov' : 'webm';
 
-    // FFmpeg args: terima WebM dari stdin, re-mux ke FLV/RTMP
+    // FFmpeg args: terima WebM atau MP4 dari stdin, re-mux ke FLV/RTMP
     const ffArgs = [
       '-fflags', 'nobuffer',
-      '-f', 'webm',
+      '-f', inputFormat,
       '-i', 'pipe:0',
     ];
 
@@ -303,10 +309,18 @@ io.on('connection', (socket) => {
       ffArgs.push('-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '18');
     }
 
+    // Tangani audio secara dinamis (non-aktifkan jika HP tidak merekam audio/tidak punya mic)
+    if (hasAudio !== false) {
+      ffArgs.push(
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-ar', '44100'
+      );
+    } else {
+      ffArgs.push('-an');
+    }
+
     ffArgs.push(
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-ar', '44100',
       '-f', 'flv',
       rtmpUrl
     );
@@ -326,7 +340,10 @@ io.on('connection', (socket) => {
     ff.on('close', (code) => {
       console.log(`[FFmpeg][${key}] Selesai (exit ${code})`);
       delete ffmpegProcesses[key];
-      // NMS donePublish akan otomatis broadcast status via event listener di bawah
+      // Beritahu client jika FFmpeg crash/berhenti secara tidak normal
+      if (code !== 0 && code !== null) {
+        socket.emit('rtmp-ffmpeg-error', { roomId, camId, code });
+      }
     });
 
     ff.on('error', (err) => {
@@ -403,7 +420,7 @@ io.on('connection', (socket) => {
 // ============================================================
 // Node-Media-Server (RTMP Ingestion Server)
 // ============================================================
-const NMS_HTTP_PORT = parseInt(PORT) + 1; // e.g. 3001 atau 3101
+// NMS_HTTP_PORT sudah didefinisikan di bagian atas server.js
 
 const nmsConfig = {
   rtmp: {

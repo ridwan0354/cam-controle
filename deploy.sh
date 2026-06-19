@@ -29,14 +29,22 @@ echo ""
 echo "[1/8] Update sistem..."
 apt-get update -qq
 
-# -------- 2. INSTALL NODE.JS (jika belum ada) --------
-echo "[2/8] Cek & install Node.js..."
+# -------- 2. INSTALL NODE.JS & FFMPEG (jika belum ada) --------
+echo "[2/8] Cek & install Node.js & FFmpeg..."
 if ! command -v node &> /dev/null; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   apt-get install -y nodejs
   echo "  ✅ Node.js $(node -v) terinstall"
 else
   echo "  ✅ Node.js sudah ada: $(node -v)"
+fi
+
+if ! command -v ffmpeg &> /dev/null; then
+  echo "  Menginstal FFmpeg..."
+  apt-get install -y ffmpeg
+  echo "  ✅ FFmpeg terinstall"
+else
+  echo "  ✅ FFmpeg sudah ada: $(ffmpeg -version | head -n 1)"
 fi
 
 # -------- 3. INSTALL PM2 (jika belum ada) --------
