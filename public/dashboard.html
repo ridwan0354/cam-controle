@@ -670,6 +670,7 @@
       document.getElementById('room-id').textContent = currentRoomId;
       document.getElementById('btn-copy-room').disabled = false;
       document.getElementById('btn-add-cam').disabled = false;
+      document.getElementById('cam-type-select').disabled = false; // fix: enable type dropdown saat restore
       document.getElementById('cam-name-input').focus();
 
       let cameraPayloads = [];
