@@ -680,6 +680,7 @@
       };
 
       pc.onconnectionstatechange = () => {
+        console.log('[WebRTC] State:', pc.connectionState);
         if (pc.connectionState === 'connected') {
           showPanel(false);
           document.getElementById('live-pill').style.display = 'flex';
@@ -687,11 +688,15 @@
           document.getElementById('zoom-bar').classList.add('show');
           setStatus('🔴', 'LIVE', 'Streaming ke OBS sedang berjalan.');
 
-          // Paksa kualitas segera setelah connected
-          applyBitrateLimit();
+          // Terapkan bitrate 3x saja (bukan terus-menerus):
+          // GCC browser biasanya reset di 0-10 detik pertama.
+          // setParameters terlalu sering (2s) justru bikin ICE unstable.
+          if (bitrateEnforceTimer) { clearInterval(bitrateEnforceTimer); bitrateEnforceTimer = null; }
 
-          // ⚡ Kunci kualitas: GCC browser bisa reset bitrate kapan saja.
-          // Paksa ulang setiap 2 detik agar kualitas tidak turun.
+          applyBitrateLimit();                            // segera
+          setTimeout(() => { if (pc?.connectionState === 'connected') applyBitrateLimit(); }, 3000);  // +3s
+          setTimeout(() => { if (pc?.connectionState === 'connected') applyBitrateLimit(); }, 10000); // +10s
+          // Setelah itu check setiap 30s — cukup jarang, tidak ganggu ICE
           bitrateEnforceTimer = setInterval(() => {
             if (pc && pc.connectionState === 'connected') {
               applyBitrateLimit();
@@ -699,10 +704,9 @@
               clearInterval(bitrateEnforceTimer);
               bitrateEnforceTimer = null;
             }
-          }, 2000);
+          }, 30000);
 
-        } else if (['disconnected','failed'].includes(pc.connectionState)) {
-          // Hentikan enforcement saat disconnected
+        } else if (['disconnected', 'failed'].includes(pc.connectionState)) {
           if (bitrateEnforceTimer) { clearInterval(bitrateEnforceTimer); bitrateEnforceTimer = null; }
           showPanel(true);
           document.getElementById('live-pill').style.display = 'none';
@@ -796,14 +800,13 @@
           parameters.encodings[0].networkPriority = 'high';
           parameters.encodings[0].priority = 'high';
 
-          // ⭐ KUNCI UTAMA:
-          // 'disabled' = WebRTC tidak boleh turunkan resolusi MAUPUN framerate.
-          // Terima delay/buffering, tapi JANGAN kurangi kualitas.
-          // Ini yang membuat RTMP terasa "mulus" — dia tidak pernah adaptasi.
-          parameters.degradationPreference = 'disabled';
+          // maintain-resolution: WebRTC boleh kurangi framerate jika perlu,
+          // tapi JANGAN turunkan resolusi. Lebih stabil daripada 'disabled'
+          // yang bisa menyebabkan packet loss → ICE failure.
+          parameters.degradationPreference = 'maintain-resolution';
 
           videoSender.setParameters(parameters)
-            .then(() => console.log(`[WebRTC] 🔒 Quality locked: ${maxBitrate/1000000}Mbps, degradation:disabled`))
+            .then(() => console.log(`[WebRTC] 🔒 Quality locked: ${maxBitrate/1000000}Mbps, maintain-resolution`))
             .catch(err => console.warn('Gagal set bitrate:', err));
         } catch (e) {
           console.warn('Error applyBitrateLimit:', e);

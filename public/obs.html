@@ -146,11 +146,20 @@
         const video = document.getElementById('remote-video');
         const stream = event.streams[0] || new MediaStream([event.track]);
         video.srcObject = stream;
-        // Audio diizinkan (tidak muted) agar suara dari kamera terdengar di OBS
         video.muted = !USE_AUDIO;
-        // Hint buffer kecil untuk mengurangi delay tanpa korbankan kualitas
         if ('bufferingThreshold' in video) video.bufferingThreshold = 0.5;
-        video.play().catch(e => console.warn('play error:', e));
+
+        // Guard: batalkan play() sebelumnya jika masih pending, hindari AbortError
+        if (video._playTimer) { clearTimeout(video._playTimer); }
+        video._playTimer = setTimeout(() => {
+          const playPromise = video.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(e => {
+              // AbortError = play() diinterrupt oleh load baru — aman diabaikan
+              if (e.name !== 'AbortError') console.warn('play error:', e);
+            });
+          }
+        }, 150); // debounce 150ms
       };
 
       // Kirim ICE candidate ke sender
