@@ -102,8 +102,8 @@
     <button class="ctrl-fab" onclick="flipCamera()">🔄<span class="fab-label">Flip</span></button>
     <select id="res-select" onchange="changeResolution(this.value)">
       <option value="4k">4K</option>
-      <option value="1080p" selected>1080p</option>
-      <option value="720p">720p</option>
+      <option value="1080p">1080p</option>
+      <option value="720p" selected>720p</option>
       <option value="480p">480p</option>
     </select>
     <button class="ctrl-fab danger" onclick="toggleStream()" id="btn-stop">⏹<span class="fab-label">Stop</span></button>
@@ -127,7 +127,7 @@
     let currentMimeType = '';
     let facingMode      = 'environment';
     let selectedDeviceId = null;
-    let currentResolution = '1080p';
+    let currentResolution = '720p';
 
     // Stats
     let bytesTotal   = 0;
@@ -147,7 +147,10 @@
     };
 
     const bitrateMap = {
-      '4k': 20000000, '1080p': 8000000, '720p': 5000000, '480p': 2000000
+      '4k': 10000000,   // 10 Mbps
+      '1080p': 4000000,  // 4 Mbps
+      '720p': 2000000,   // 2 Mbps
+      '480p': 1000000    // 1 Mbps
     };
 
     document.getElementById('hud-name').textContent = CAM_NAME;

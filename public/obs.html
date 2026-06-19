@@ -286,7 +286,7 @@
         return;
       }
       
-      if (isFlvPlaying) return;
+      if (isFlvPlaying || flvPlayer) return;
       
       const isHttps = location.protocol === 'https:';
       const protocol = isHttps ? 'wss:' : 'ws:';
