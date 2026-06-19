@@ -658,8 +658,14 @@
     // ============================================================
     // WEBRTC — BUAT PEER CONNECTION
     // ============================================================
+    // Timer untuk paksa ulang bitrate (lawan GCC browser yang reset otomatis)
+    let bitrateEnforceTimer = null;
+
     function createPC() {
       if (pc) { pc.close(); pc = null; }
+
+      // Hentikan timer lama jika ada
+      if (bitrateEnforceTimer) { clearInterval(bitrateEnforceTimer); bitrateEnforceTimer = null; }
 
       pc = new RTCPeerConnection(STUN_SERVERS);
 
@@ -680,7 +686,24 @@
           document.getElementById('rec-badge').classList.add('show');
           document.getElementById('zoom-bar').classList.add('show');
           setStatus('🔴', 'LIVE', 'Streaming ke OBS sedang berjalan.');
+
+          // Paksa kualitas segera setelah connected
+          applyBitrateLimit();
+
+          // ⚡ Kunci kualitas: GCC browser bisa reset bitrate kapan saja.
+          // Paksa ulang setiap 2 detik agar kualitas tidak turun.
+          bitrateEnforceTimer = setInterval(() => {
+            if (pc && pc.connectionState === 'connected') {
+              applyBitrateLimit();
+            } else {
+              clearInterval(bitrateEnforceTimer);
+              bitrateEnforceTimer = null;
+            }
+          }, 2000);
+
         } else if (['disconnected','failed'].includes(pc.connectionState)) {
+          // Hentikan enforcement saat disconnected
+          if (bitrateEnforceTimer) { clearInterval(bitrateEnforceTimer); bitrateEnforceTimer = null; }
           showPanel(true);
           document.getElementById('live-pill').style.display = 'none';
           document.getElementById('rec-badge').classList.remove('show');
@@ -747,6 +770,8 @@
 
     // ============================================================
     // QUALITY ENFORCEMENT — Paksa WebRTC kirim kualitas tinggi
+    // Dipanggil sekali saat connect, lalu diulang setiap 2 detik
+    // karena Google Congestion Control (GCC) bisa reset parameter ini.
     // ============================================================
     function applyBitrateLimit() {
       if (!pc) return;
@@ -758,39 +783,41 @@
           if (!parameters.encodings) parameters.encodings = [{}];
           if (!parameters.encodings[0]) parameters.encodings[0] = {};
 
-          // Bitrate tinggi — setara dengan stream RTMP berkualitas baik
+          // Bitrate tinggi setara RTMP
           let maxBitrate = 8000000;  // default 1080p: 8 Mbps
-          if (currentResolution === '4k')    maxBitrate = 25000000; // 25 Mbps
-          else if (currentResolution === '1080p') maxBitrate = 8000000;  // 8 Mbps
-          else if (currentResolution === '720p')  maxBitrate = 5000000;  // 5 Mbps
-          else if (currentResolution === '480p')  maxBitrate = 2000000;  // 2 Mbps
-          else if (currentResolution === '360p')  maxBitrate = 800000;   // 800 kbps
+          if (currentResolution === '4k')    maxBitrate = 25000000;
+          else if (currentResolution === '1080p') maxBitrate = 8000000;
+          else if (currentResolution === '720p')  maxBitrate = 5000000;
+          else if (currentResolution === '480p')  maxBitrate = 2000000;
+          else if (currentResolution === '360p')  maxBitrate = 800000;
 
-          // PALING PENTING: maintain-resolution → WebRTC tidak boleh turunkan resolusi
-          // saat bandwidth sedikit, lebih baik kurangi framerate.
           parameters.encodings[0].maxBitrate = maxBitrate;
           parameters.encodings[0].maxFramerate = 30;
           parameters.encodings[0].networkPriority = 'high';
           parameters.encodings[0].priority = 'high';
-          // degradeGracefully: false → pertahankan resolusi meski lambat
-          parameters.degradationPreference = 'maintain-resolution';
+
+          // ⭐ KUNCI UTAMA:
+          // 'disabled' = WebRTC tidak boleh turunkan resolusi MAUPUN framerate.
+          // Terima delay/buffering, tapi JANGAN kurangi kualitas.
+          // Ini yang membuat RTMP terasa "mulus" — dia tidak pernah adaptasi.
+          parameters.degradationPreference = 'disabled';
 
           videoSender.setParameters(parameters)
-            .then(() => console.log(`[WebRTC] 🎬 Kualitas diterapkan: ${maxBitrate / 1000000} Mbps @ ${currentResolution}, prefer maintain-resolution`))
+            .then(() => console.log(`[WebRTC] 🔒 Quality locked: ${maxBitrate/1000000}Mbps, degradation:disabled`))
             .catch(err => console.warn('Gagal set bitrate:', err));
         } catch (e) {
           console.warn('Error applyBitrateLimit:', e);
         }
       }
 
-      // Paksa bitrate minimum agar tidak drop terlalu jauh
+      // Audio 128 kbps
       const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
       if (audioSender) {
         try {
           const audioParams = audioSender.getParameters();
           if (!audioParams.encodings) audioParams.encodings = [{}];
           if (!audioParams.encodings[0]) audioParams.encodings[0] = {};
-          audioParams.encodings[0].maxBitrate = 128000; // Audio 128 kbps
+          audioParams.encodings[0].maxBitrate = 128000;
           audioSender.setParameters(audioParams).catch(() => {});
         } catch {}
       }
