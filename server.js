@@ -12,7 +12,12 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const os = require('os');
+const { spawn } = require('child_process');
 const NodeMediaServer = require('node-media-server');
+
+// Map FFmpeg proses per kamera (Browser RTMP → FFmpeg → NMS)
+// key: 'ROOMID_CAMID' → ChildProcess
+const ffmpegProcesses = {};
 
 const app = express();
 const server = http.createServer(app);
@@ -263,12 +268,121 @@ io.on('connection', (socket) => {
   });
 
   // ============================================================
+  // Browser → RTMP (via MediaRecorder → FFmpeg → NMS)
+  // ============================================================
+  socket.on('rtmp-browser-start', ({ roomId, camId, mimeType }) => {
+    const key = `${roomId}_${camId}`;
+
+    // Hentikan proses FFmpeg lama jika ada
+    if (ffmpegProcesses[key]) {
+      try { ffmpegProcesses[key].stdin.end(); ffmpegProcesses[key].kill('SIGKILL'); } catch {}
+      delete ffmpegProcesses[key];
+    }
+
+    // Validasi room & kamera
+    if (!rooms[roomId]?.cameras[camId]) {
+      socket.emit('camera-not-found', { camId });
+      return;
+    }
+
+    const rtmpUrl = `rtmp://127.0.0.1:1935/live/${key}`;
+    const isH264  = mimeType && (mimeType.includes('h264') || mimeType.includes('avc1'));
+
+    // FFmpeg args: terima WebM dari stdin, re-mux ke FLV/RTMP
+    const ffArgs = [
+      '-fflags', 'nobuffer',
+      '-f', 'webm',
+      '-i', 'pipe:0',
+    ];
+
+    if (isH264) {
+      // H264 bisa di-copy langsung tanpa transcode → CPU rendah, kualitas maksimal
+      ffArgs.push('-c:v', 'copy');
+    } else {
+      // VP8/VP9 perlu transcode ke H264 agar kompatibel dengan RTMP/FLV
+      ffArgs.push('-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '18');
+    }
+
+    ffArgs.push(
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-ar', '44100',
+      '-f', 'flv',
+      rtmpUrl
+    );
+
+    const ff = spawn('ffmpeg', ffArgs, { stdio: ['pipe', 'ignore', 'pipe'] });
+    ffmpegProcesses[key] = ff;
+    socket.data.rtmpKey = key; // untuk cleanup saat disconnect
+
+    ff.stderr.on('data', d => {
+      const msg = d.toString();
+      // Log hanya error & warning, bukan progress frame
+      if (msg.includes('Error') || msg.includes('error') || msg.includes('warn')) {
+        console.warn(`[FFmpeg][${key}]: ${msg.slice(0, 200)}`);
+      }
+    });
+
+    ff.on('close', (code) => {
+      console.log(`[FFmpeg][${key}] Selesai (exit ${code})`);
+      delete ffmpegProcesses[key];
+      // NMS donePublish akan otomatis broadcast status via event listener di bawah
+    });
+
+    ff.on('error', (err) => {
+      if (err.code === 'ENOENT') {
+        console.error('[FFmpeg] FFmpeg tidak ditemukan! Install dengan: apt install ffmpeg');
+        socket.emit('remote-command', { command: 'error', value: 'FFmpeg tidak terinstall di server' });
+      } else {
+        console.error(`[FFmpeg][${key}] Error:`, err.message);
+      }
+      delete ffmpegProcesses[key];
+    });
+
+    console.log(`[${roomId}][${camId}] 🎬 Browser→RTMP via FFmpeg | Codec: ${isH264 ? 'H264 copy' : 'libx264 transcode'}`);
+  });
+
+  socket.on('rtmp-browser-chunk', ({ roomId, camId, chunk }) => {
+    const ff = ffmpegProcesses[`${roomId}_${camId}`];
+    if (ff && ff.stdin.writable && !ff.killed) {
+      try {
+        ff.stdin.write(Buffer.from(chunk));
+      } catch (e) {
+        // stdin sudah tertutup, abaikan
+      }
+    }
+  });
+
+  socket.on('rtmp-browser-stop', ({ roomId, camId }) => {
+    const key = `${roomId}_${camId}`;
+    const ff = ffmpegProcesses[key];
+    if (ff) {
+      try { ff.stdin.end(); } catch {}
+      // Jangan langsung kill — biarkan FFmpeg flush buffer dulu
+      setTimeout(() => {
+        try { if (!ff.killed) ff.kill('SIGTERM'); } catch {}
+        delete ffmpegProcesses[key];
+      }, 2000);
+    }
+    console.log(`[${roomId}][${camId}] Browser RTMP stream dihentikan`);
+  });
+
+  // ============================================================
   // Disconnect
   // ============================================================
   socket.on('disconnect', () => {
     const { roomId, role, camId } = socket.data || {};
-    if (!roomId || !rooms[roomId]) return;
 
+    // Cleanup FFmpeg jika ini adalah browser RTMP sender
+    if (socket.data.rtmpKey) {
+      const ff = ffmpegProcesses[socket.data.rtmpKey];
+      if (ff) {
+        try { ff.stdin.end(); ff.kill('SIGKILL'); } catch {}
+        delete ffmpegProcesses[socket.data.rtmpKey];
+      }
+    }
+
+    if (!roomId || !rooms[roomId]) return;
     const room = rooms[roomId];
 
     if (role === 'dashboard') {

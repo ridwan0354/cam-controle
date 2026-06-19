@@ -347,8 +347,18 @@
     let statusText = isRtmp ? 'Menunggu Stream' : 'Menunggu HP';
 
     if (isRtmp) {
+      const rtmpCamLink = `${BASE_URL}/rtmp-cam.html?room=${currentRoomId}&cam=${camId}&name=${encodeURIComponent(name)}`;
       const combinedRtmp = `${rtmpServer}/${rtmpKey}`;
       linksHtml = `
+        <!-- HP Browser RTMP (baru) -->
+        <div class="link-item" style="border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.06)">
+          <div class="link-item-head">
+            <span class="link-badge" style="background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.35)">📱 HP Browser (Kualitas RTMP)</span>
+            <button class="btn btn-secondary" style="padding:3px 8px;font-size:.62rem" onclick="copyText('${rtmpCamLink}')">Salin</button>
+          </div>
+          <div class="link-url" style="color:rgba(255,255,255,.6)">${rtmpCamLink}</div>
+          <div class="qr-wrap"><div id="qr-rtmp-${camId}"></div></div>
+        </div>
         <!-- Combined RTMP URL (Untuk DJI Mimo / DJI Fly) -->
         <div class="link-item" style="border: 1px solid rgba(99,102,241,0.45); background: rgba(99,102,241,0.06)">
           <div class="link-item-head">
@@ -382,6 +392,7 @@
           <div class="link-url">${obsLink}</div>
         </div>
       `;
+
       
       controlsHtml = `
         <div class="cam-controls">
@@ -477,14 +488,28 @@
 
     document.getElementById('cameras-grid').appendChild(card);
 
-    // Generate QR only if WebRTC
+    // Generate QR
     if (!isRtmp) {
+      // WebRTC: QR untuk kamera.html
       setTimeout(() => {
         new QRCode(document.getElementById(`qr-${camId}`), {
           text: mobileLink, width: 150, height: 150,
           colorDark: '#000', colorLight: '#fff',
           correctLevel: QRCode.CorrectLevel.M,
         });
+      }, 80);
+    } else {
+      // RTMP: QR untuk rtmp-cam.html (HP Browser)
+      setTimeout(() => {
+        const qrEl = document.getElementById(`qr-rtmp-${camId}`);
+        if (qrEl) {
+          new QRCode(qrEl, {
+            text: `${BASE_URL}/rtmp-cam.html?room=${currentRoomId}&cam=${camId}&name=${encodeURIComponent(name)}`,
+            width: 150, height: 150,
+            colorDark: '#000', colorLight: '#fff',
+            correctLevel: QRCode.CorrectLevel.M,
+          });
+        }
       }, 80);
     }
   }

@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Kamera RTMP — Cam Controller</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+    :root{--bg:#0a0a12;--purple:#6366f1;--cyan:#06b6d4;--green:#10b981;--red:#ef4444;--orange:#f59e0b;--text:#f0f0ff;--muted:#60607a}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#000;height:100dvh;overflow:hidden;font-family:'Inter',sans-serif;color:var(--text)}
+
+    #video-container{position:fixed;inset:0;background:#000}
+    video{width:100%;height:100%;object-fit:contain;display:block}
+
+    /* HUD */
+    .hud{position:fixed;top:0;left:0;right:0;padding:16px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(to bottom,rgba(0,0,0,.75),transparent);z-index:10;pointer-events:none}
+    .hud-left{}
+    .hud-name{font-size:.9rem;font-weight:700;color:#fff}
+    .hud-room{font-size:.62rem;color:rgba(255,255,255,.45);font-family:'JetBrains Mono',monospace;margin-top:2px}
+    .live-pill{display:flex;align-items:center;gap:5px;padding:4px 12px;border-radius:999px;font-size:.65rem;font-weight:700;letter-spacing:.08em;background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.5);color:#6ee7b7}
+    .live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1s infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+    /* Status Panel */
+    #status-panel{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);z-index:20;padding:20px;transition:opacity .3s}
+    #status-panel.hidden{opacity:0;pointer-events:none}
+    .status-card{background:rgba(10,10,18,.92);border:1px solid rgba(99,102,241,.3);border-radius:24px;padding:28px 28px 22px;text-align:center;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+    .status-icon{font-size:2.8rem;margin-bottom:10px}
+    .status-title{font-size:1.05rem;font-weight:700;margin-bottom:6px}
+    .status-sub{font-size:.75rem;color:rgba(255,255,255,.45);line-height:1.7;margin-bottom:18px;font-family:'JetBrains Mono',monospace}
+    .retry-btn{padding:12px 32px;border-radius:14px;background:linear-gradient(135deg,var(--purple),var(--cyan));border:none;color:#fff;font-size:.88rem;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;transition:.2s;width:100%}
+    .retry-btn:hover{opacity:.85}
+
+    /* Stats Bar */
+    #stats-bar{position:fixed;bottom:88px;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:15;opacity:0;transition:.3s}
+    #stats-bar.show{opacity:1}
+    .stat-chip{background:rgba(0,0,0,.6);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:5px 12px;font-size:.65rem;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,.7);white-space:nowrap}
+    .stat-chip span{color:var(--cyan);font-weight:700}
+
+    /* Controls */
+    #ctrl-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;gap:12px;z-index:20;opacity:0;transition:.3s;pointer-events:none}
+    #ctrl-bar.visible{opacity:1;pointer-events:auto}
+    .ctrl-fab{width:54px;height:54px;border-radius:16px;background:rgba(10,10,18,.85);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.12);color:#fff;font-size:1.35rem;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.2s;-webkit-tap-highlight-color:transparent;flex-direction:column;gap:2px}
+    .ctrl-fab:active{transform:scale(.88)}
+    .ctrl-fab .fab-label{font-size:.5rem;color:rgba(255,255,255,.5);font-weight:600;letter-spacing:.05em}
+    .ctrl-fab.danger{border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.15)}
+    .ctrl-fab.danger:active{background:rgba(239,68,68,.35)}
+
+    /* Res select */
+    #res-select{background:rgba(10,10,18,.85);border:1px solid rgba(255,255,255,.12);color:#fff;font-size:.72rem;padding:6px 10px;border-radius:10px;font-family:'Inter',sans-serif;cursor:pointer;outline:none}
+
+    /* Hint */
+    #ctrl-hint{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);z-index:14;opacity:0;pointer-events:none;transition:opacity .4s;background:rgba(0,0,0,.5);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08);border-radius:999px;padding:6px 18px;font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap}
+    #ctrl-hint.visible{opacity:1}
+
+    /* Codec badge */
+    #codec-badge{position:fixed;top:70px;right:14px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);color:var(--purple);font-size:.58rem;font-weight:700;padding:3px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;z-index:12;opacity:0;transition:.3s}
+    #codec-badge.show{opacity:1}
+  </style>
+</head>
+<body>
+
+  <div id="video-container">
+    <video id="local-video" autoplay muted playsinline></video>
+  </div>
+
+  <!-- HUD -->
+  <div class="hud" id="hud" style="display:none">
+    <div class="hud-left">
+      <div class="hud-name" id="hud-name">Kamera</div>
+      <div class="hud-room" id="hud-room"></div>
+    </div>
+    <div class="live-pill" id="live-pill" style="display:none">
+      <div class="live-dot"></div> RTMP LIVE
+    </div>
+  </div>
+
+  <!-- Codec badge -->
+  <div id="codec-badge">–</div>
+
+  <!-- Stats -->
+  <div id="stats-bar">
+    <div class="stat-chip">📤 <span id="stat-mbps">– Mbps</span></div>
+    <div class="stat-chip">⏱ <span id="stat-duration">0:00</span></div>
+    <div class="stat-chip">📦 <span id="stat-chunks">0</span> chunks</div>
+  </div>
+
+  <!-- Status Panel -->
+  <div id="status-panel">
+    <div class="status-card">
+      <div class="status-icon" id="s-icon">📡</div>
+      <div class="status-title" id="s-title">Menghubungkan...</div>
+      <div class="status-sub" id="s-sub">Menyambung ke server signaling</div>
+      <button class="retry-btn" id="s-btn" onclick="initCamera()" style="display:none">🔄 Coba Lagi</button>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div id="ctrl-bar">
+    <button class="ctrl-fab" onclick="flipCamera()">🔄<span class="fab-label">Flip</span></button>
+    <select id="res-select" onchange="changeResolution(this.value)">
+      <option value="4k">4K</option>
+      <option value="1080p" selected>1080p</option>
+      <option value="720p">720p</option>
+      <option value="480p">480p</option>
+    </select>
+    <button class="ctrl-fab danger" onclick="toggleStream()" id="btn-stop">⏹<span class="fab-label">Stop</span></button>
+  </div>
+
+  <div id="ctrl-hint">📡 RTMP · Ketuk untuk kontrol</div>
+
+  <script>
+    // ============================================================
+    // PARAMS & STATE
+    // ============================================================
+    const params   = new URLSearchParams(location.search);
+    const ROOM_ID  = params.get('room');
+    const CAM_ID   = params.get('cam');
+    const CAM_NAME = params.get('name') || 'Kamera';
+
+    const socket        = io();
+    let localStream     = null;
+    let mediaRecorder   = null;
+    let isStreaming     = false;
+    let currentMimeType = '';
+    let facingMode      = 'environment';
+    let selectedDeviceId = null;
+    let currentResolution = '1080p';
+
+    // Stats
+    let bytesTotal   = 0;
+    let chunksTotal  = 0;
+    let streamStart  = null;
+    let bitrateTimer = null;
+    let bytesLastSec = 0;
+    let controlsTimer = null;
+    let controlsVisible = false;
+    let tapSetupDone  = false;
+
+    const resolutions = {
+      '4k':   { width: 3840, height: 2160 },
+      '1080p':{ width: 1920, height: 1080 },
+      '720p': { width: 1280, height: 720  },
+      '480p': { width: 854,  height: 480  },
+    };
+
+    const bitrateMap = {
+      '4k': 20000000, '1080p': 8000000, '720p': 5000000, '480p': 2000000
+    };
+
+    document.getElementById('hud-name').textContent = CAM_NAME;
+    document.getElementById('hud-room').textContent = `RTMP · ${ROOM_ID} · ${CAM_ID}`;
+
+    if (!ROOM_ID || !CAM_ID) {
+      setStatus('⚠️', 'Link Tidak Valid', 'Scan ulang QR Code dari Dashboard.');
+    }
+
+    // ============================================================
+    // UI HELPERS
+    // ============================================================
+    function setStatus(icon, title, sub, showBtn = false) {
+      document.getElementById('s-icon').textContent = icon;
+      document.getElementById('s-title').textContent = title;
+      document.getElementById('s-sub').textContent = sub;
+      document.getElementById('s-btn').style.display = showBtn ? 'block' : 'none';
+    }
+
+    function showPanel(show) {
+      const panel = document.getElementById('status-panel');
+      const hud   = document.getElementById('hud');
+      if (show) {
+        panel.classList.remove('hidden');
+        hud.style.display = 'none';
+      } else {
+        panel.classList.add('hidden');
+        hud.style.display = 'flex';
+      }
+    }
+
+    // ============================================================
+    // CODEC DETECTION — Pilih codec terbaik tersedia
+    // ============================================================
+    function getBestMimeType() {
+      const candidates = [
+        'video/webm;codecs=h264,opus',
+        'video/webm;codecs=avc1,opus',
+        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+      ];
+      for (const t of candidates) {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) return t;
+      }
+      return '';
+    }
+
+    function getCodecLabel(mimeType) {
+      if (!mimeType) return 'AUTO';
+      if (mimeType.includes('h264') || mimeType.includes('avc1')) return 'H264 ✓';
+      if (mimeType.includes('vp9')) return 'VP9';
+      if (mimeType.includes('vp8')) return 'VP8';
+      return 'WEBM';
+    }
+
+    // ============================================================
+    // INISIALISASI KAMERA
+    // ============================================================
+    async function initCamera() {
+      setStatus('⏳', 'Minta Akses Kamera...', 'Izinkan akses kamera & mikrofon.');
+      try {
+        if (localStream) localStream.getTracks().forEach(t => t.stop());
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+        }
+        isStreaming = false;
+
+        const res = resolutions[currentResolution] || resolutions['1080p'];
+        const constraints = {
+          video: {
+            width:     { ideal: res.width  },
+            height:    { ideal: res.height },
+            frameRate: { ideal: 30 },
+          },
+          audio: { echoCancellation: true, noiseSuppression: true },
+        };
+
+        if (selectedDeviceId) {
+          constraints.video.deviceId = { exact: selectedDeviceId };
+        } else {
+          constraints.video.facingMode = facingMode;
+        }
+
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        document.getElementById('local-video').srcObject = localStream;
+
+        setStatus('✅', 'Kamera Aktif', 'Memulai koneksi ke server...');
+
+        socket.emit('join-room', {
+          roomId: ROOM_ID,
+          role: 'sender',
+          camId: CAM_ID,
+          camName: CAM_NAME,
+          orientation: 'landscape',
+        });
+
+        startStreaming();
+        setupTapControls();
+
+      } catch (err) {
+        console.error('[Camera] Error:', err);
+        setStatus('⚠️', 'Gagal Akses Kamera', `${err.message}\n\nIzinkan akses kamera di browser.`, true);
+      }
+    }
+
+    // ============================================================
+    // MEDIARECORDER — START STREAMING
+    // ============================================================
+    function startStreaming() {
+      if (isStreaming || !localStream) return;
+
+      currentMimeType = getBestMimeType();
+      const codecLabel = getCodecLabel(currentMimeType);
+      const videoBitrate = bitrateMap[currentResolution] || 8000000;
+
+      let options = { videoBitsPerSecond: videoBitrate, audioBitsPerSecond: 128000 };
+      if (currentMimeType) options.mimeType = currentMimeType;
+
+      try {
+        mediaRecorder = new MediaRecorder(localStream, options);
+      } catch (e) {
+        console.warn('[MediaRecorder] mimeType not supported, using default:', e);
+        mediaRecorder = new MediaRecorder(localStream, {
+          videoBitsPerSecond: videoBitrate,
+          audioBitsPerSecond: 128000,
+        });
+        currentMimeType = '';
+      }
+
+      // Beritahu server → server spawn FFmpeg
+      socket.emit('rtmp-browser-start', {
+        roomId: ROOM_ID,
+        camId: CAM_ID,
+        mimeType: currentMimeType,
+      });
+
+      // Kirim setiap chunk ke server
+      mediaRecorder.ondataavailable = (e) => {
+        if (!e.data || e.data.size === 0) return;
+        bytesTotal += e.data.size;
+        chunksTotal++;
+        e.data.arrayBuffer().then(buf => {
+          socket.emit('rtmp-browser-chunk', {
+            roomId: ROOM_ID,
+            camId: CAM_ID,
+            chunk: buf,
+          });
+        });
+      };
+
+      mediaRecorder.onstart = () => {
+        isStreaming = true;
+        streamStart = Date.now();
+        bytesTotal  = 0;
+        chunksTotal = 0;
+        bytesLastSec = 0;
+
+        showPanel(false);
+        document.getElementById('live-pill').style.display = 'flex';
+        document.getElementById('stats-bar').classList.add('show');
+        document.getElementById('ctrl-bar').classList.add('visible');
+
+        const badge = document.getElementById('codec-badge');
+        badge.textContent = codecLabel;
+        badge.classList.add('show');
+
+        startStatsMonitor();
+
+        const hint = document.getElementById('ctrl-hint');
+        hint.classList.add('visible');
+        setTimeout(() => hint.classList.remove('visible'), 3000);
+      };
+
+      mediaRecorder.onerror = (e) => {
+        console.error('[MediaRecorder] Error:', e.error);
+        setStatus('❌', 'Error Streaming', e.error?.message || 'Terjadi error saat stream.', true);
+        showPanel(true);
+        isStreaming = false;
+      };
+
+      mediaRecorder.onstop = () => {
+        isStreaming = false;
+      };
+
+      // Chunks setiap 500ms — balance kualitas & latency
+      mediaRecorder.start(500);
+    }
+
+    // ============================================================
+    // STOP STREAMING
+    // ============================================================
+    function stopStreaming() {
+      if (!isStreaming && (!mediaRecorder || mediaRecorder.state === 'inactive')) return;
+
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+
+      socket.emit('rtmp-browser-stop', { roomId: ROOM_ID, camId: CAM_ID });
+
+      isStreaming = false;
+      clearInterval(bitrateTimer);
+
+      document.getElementById('live-pill').style.display = 'none';
+      document.getElementById('stats-bar').classList.remove('show');
+      document.getElementById('ctrl-bar').classList.remove('visible');
+      document.getElementById('codec-badge').classList.remove('show');
+    }
+
+    function toggleStream() {
+      if (isStreaming) {
+        stopStreaming();
+        setStatus('⏸', 'Stream Dihentikan', 'Ketuk Coba Lagi untuk mulai kembali.', true);
+        showPanel(true);
+      } else {
+        startStreaming();
+      }
+    }
+
+    // ============================================================
+    // STATS MONITOR
+    // ============================================================
+    function startStatsMonitor() {
+      let prevBytes = 0;
+      bitrateTimer = setInterval(() => {
+        if (!isStreaming) return;
+
+        const diff = bytesTotal - prevBytes;
+        const mbps = ((diff * 8) / 1_000_000).toFixed(2);
+        prevBytes = bytesTotal;
+
+        const elapsed = Math.floor((Date.now() - streamStart) / 1000);
+        const mm = Math.floor(elapsed / 60);
+        const ss = String(elapsed % 60).padStart(2, '0');
+
+        document.getElementById('stat-mbps').textContent = `${mbps} Mbps`;
+        document.getElementById('stat-duration').textContent = `${mm}:${ss}`;
+        document.getElementById('stat-chunks').textContent = chunksTotal;
+      }, 1000);
+    }
+
+    // ============================================================
+    // FLIP / RESOLUTION
+    // ============================================================
+    async function flipCamera() {
+      stopStreaming();
+      if (localStream) localStream.getTracks().forEach(t => t.stop());
+      facingMode = facingMode === 'environment' ? 'user' : 'environment';
+      selectedDeviceId = null;
+      await initCamera();
+    }
+
+    async function changeResolution(res) {
+      currentResolution = res;
+      const wasStreaming = isStreaming;
+      stopStreaming();
+      if (localStream) localStream.getTracks().forEach(t => t.stop());
+      await initCamera();
+    }
+
+    // ============================================================
+    // TAP TO SHOW CONTROLS
+    // ============================================================
+    function showControls() {
+      controlsVisible = true;
+      document.getElementById('ctrl-bar').classList.add('visible');
+      clearTimeout(controlsTimer);
+      controlsTimer = setTimeout(() => {
+        controlsVisible = false;
+        document.getElementById('ctrl-bar').classList.remove('visible');
+      }, 3500);
+    }
+
+    function setupTapControls() {
+      if (tapSetupDone) return;
+      tapSetupDone = true;
+
+      const container = document.getElementById('video-container');
+      container.addEventListener('click', (e) => {
+        if (e.target.closest('#ctrl-bar')) return;
+        if (!controlsVisible) showControls();
+      });
+      container.addEventListener('touchend', (e) => {
+        if (e.target.closest('#ctrl-bar') || e.target.closest('#res-select')) return;
+        if (!controlsVisible) showControls();
+      }, { passive: true });
+    }
+
+    // ============================================================
+    // SOCKET EVENTS
+    // ============================================================
+    socket.on('connect', () => {
+      if (ROOM_ID && CAM_ID) initCamera();
+    });
+
+    socket.on('disconnect', () => {
+      const streaming = isStreaming;
+      stopStreaming();
+      if (streaming) {
+        setStatus('❌', 'Server Terputus', 'Mencoba reconnect...', false);
+        showPanel(true);
+      }
+    });
+
+    socket.on('camera-deleted', ({ camId }) => {
+      if (camId !== CAM_ID) return;
+      stopStreaming();
+      if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+      showPanel(true);
+      setStatus('🗑️', 'Kamera Dihapus', 'Kamera ini telah dihapus dari Dashboard.');
+    });
+
+    socket.on('room-not-found', () => {
+      showPanel(true);
+      setStatus('⚠️', 'Room Tidak Ditemukan', 'Room sudah tidak aktif atau dihapus.');
+    });
+
+    socket.on('camera-not-found', () => {
+      showPanel(true);
+      setStatus('⚠️', 'Kamera Tidak Terdaftar', 'Kamera ini belum terdaftar di Dashboard.');
+    });
+
+    // ============================================================
+    // WAKE LOCK — Cegah HP sleep
+    // ============================================================
+    async function requestWakeLock() {
+      try { await navigator.wakeLock.request('screen'); } catch {}
+    }
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState === 'visible') requestWakeLock();
+    });
+    requestWakeLock();
+  </script>
+</body>
+</html>
